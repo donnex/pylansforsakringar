@@ -6,14 +6,14 @@ from slugify import slugify
 
 
 class Lansforsarkingar(object):
-    def __init__(self, personal_number, pin_code):
+    def __init__(self, personal_identity_number, pin_code):
         self.base_url = 'https://secure246.lansforsakringar.se'
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_5) '
                           'AppleWebKit/537.36 (KHTML, like Gecko) '
                           'Chrome/39.0.2171.95 Safari/537.36'}
 
-        self.personal_number = personal_number
+        self.personal_identity_number = personal_identity_number
         self.pin_code = pin_code
 
         self.accounts = {}
@@ -88,7 +88,7 @@ class Lansforsarkingar(object):
         data['selMechanism'] = 'PIN-kod'
         data['btnLogIn.x'] = 0
         data['btnLogIn.y'] = 0
-        data['inputPersonalNumber'] = self.personal_number
+        data['inputPersonalNumber'] = self.personal_identity_number
         data['inputPinCode'] = self.pin_code
 
         # Login request
