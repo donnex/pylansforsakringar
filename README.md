@@ -2,12 +2,12 @@
 A Python library for accessing bank data by parsing Länsförsäkringars online bank.
 
 # Usage
-    # Setup and login
+## Setup and login
     lf = Lansforsarkingar(PERSONAL_IDENTITY_NUMBER, PIN_CODE)
     lf.login()
     lf.fetch_bank_overview()
 
-    # View accounts overview
+## View accounts overview
     lf.accounts
 
     ipdb> pprint(lf.accounts)
@@ -18,7 +18,7 @@ A Python library for accessing bank data by parsing Länsförsäkringars online 
                  'id': u'ID',
                  'name': u'Konto 2'}}
 
-    # View saving accounts overview
+## View saving accounts overview
     lf.saving_accounts
 
     ipdb> pprint(lf.saving_accounts)
@@ -29,7 +29,7 @@ A Python library for accessing bank data by parsing Länsförsäkringars online 
                       'id': u'ID',
                       'name': u'Spar 2'}}
 
-    # Fetch account details
+## Fetch account details
     lf.fetch_account_details(id)
 
     ipdb> pprint(lf.fetch_account_details(lf.accounts['konto_1']['id']))
@@ -43,7 +43,7 @@ A Python library for accessing bank data by parsing Länsförsäkringars online 
       'new_balance': 2000.0},
       ...
 
-    # View founds overview
+## View founds overview
     lf.founds
 
     ipdb> pprint(lf.founds)
@@ -51,7 +51,7 @@ A Python library for accessing bank data by parsing Länsförsäkringars online 
                  'id': u'ID',
                  'name': u'Fonder'}}
 
-    # Fetch founds detail
+## Fetch founds detail
     lf.fetch_founds_detail(id)
 
     ipdb> pprint(lf.fetch_founds_detail(lf.founds['fonder']['id']))
@@ -65,7 +65,7 @@ A Python library for accessing bank data by parsing Länsförsäkringars online 
                 'balance': 4900.0,
                 'name': 'Totalt'}}
 
-    # View ISK founds overview
+## View ISK founds overview
     lf.isk_founds
 
     ipdb> pprint(lf.isk_founds)
@@ -76,7 +76,7 @@ A Python library for accessing bank data by parsing Länsförsäkringars online 
                      'id': u'ID',
                      'name': u'ISK 2'}}
 
-    # Fetch ISK founds detail
+## Fetch ISK founds detail
     lf.fetch_isk_founds_detail(ID)
 
     ipdb> pprint(lf.fetch_isk_founds_detail(lf.isk_founds['isk_1']['id']))
