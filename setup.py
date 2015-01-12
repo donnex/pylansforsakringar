@@ -2,7 +2,7 @@ from distutils.core import setup
 
 setup(
     name='pylansforsakringar',
-    version='1.0.0',
+    version='1.0.1',
     description='Lansforsakringar Python library (scraping)',
     py_modules=['lansforsakringar'],
 

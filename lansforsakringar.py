@@ -18,8 +18,8 @@ class Lansforsarkingar(object):
 
         self.accounts = {}
         self.saving_accounts = {}
-        self.founds = {}
-        self.isk_founds = {}
+        self.funds = {}
+        self.isk_funds = {}
 
         # Setup requests session
         self.session = requests.Session()
@@ -63,7 +63,7 @@ class Lansforsarkingar(object):
         data['javax.faces.ViewState'] = hidden_inputs['javax.faces.ViewState']
         data['_token'] = self.next_token
 
-        # Request the ISK founds page to get the menu and build next POST
+        # Request the ISK funds page to get the menu and build next POST
         path = '/im/im/bank.jsf'
         req = self.session.post(self.base_url + path, data=data)
         soup = BeautifulSoup(req.content)
@@ -131,7 +131,7 @@ class Lansforsarkingar(object):
             self.saving_accounts[key] = {'name': name, 'balance': balance,
                                          'id': id}
 
-        # Founds
+        # Funds
         for tr in soup.select('#bankOverviewForm:fundsDataTable tbody tr'):
             name = tr.select('td')[0].text
             balance = self._fix_balance(tr.select('td')[2].text)
@@ -139,9 +139,9 @@ class Lansforsarkingar(object):
             key = self._bank_name_key(name)
             id = tr.select('a')[0].attrs['id']
 
-            self.founds[key] = {'name': name, 'balance': balance, 'id': id}
+            self.funds[key] = {'name': name, 'balance': balance, 'id': id}
 
-        # ISK founds
+        # ISK funds
         for tr in soup.select('#bankOverviewForm:iskDataTable tbody tr'):
             name = tr.select('td')[0].text
             balance = self._fix_balance(tr.select('td')[2].text)
@@ -149,7 +149,7 @@ class Lansforsarkingar(object):
             key = self._bank_name_key(name)
             id = tr.select('a')[0].attrs['id']
 
-            self.isk_founds[key] = {'name': name, 'balance': balance, 'id': id}
+            self.isk_funds[key] = {'name': name, 'balance': balance, 'id': id}
 
         return True
 
@@ -175,15 +175,15 @@ class Lansforsarkingar(object):
 
         return actions
 
-    def fetch_founds_detail(self, id):
-        """Fetch and return founds detail"""
+    def fetch_funds_detail(self, id):
+        """Fetch and return funds detail"""
 
         # Fetch the bank page
         soup = self._fetch_bank_form_page(id)
 
-        founds = {}
+        funds = {}
 
-        # Parse founds
+        # Parse funds
         table = soup.select('#mutualFundList:MutualFundList')[0]
         for tr in table.select('tbody tr'):
             name = tr.select('td a')[0].text
@@ -192,8 +192,8 @@ class Lansforsarkingar(object):
 
             key = self._bank_name_key(name)
 
-            founds[key] = {'name': name, 'balance': balance,
-                           'acquisition_value': acquisition_value}
+            funds[key] = {'name': name, 'balance': balance,
+                          'acquisition_value': acquisition_value}
 
         # Total
         tr_total = table.select('tfoot tr')[0]
@@ -201,18 +201,18 @@ class Lansforsarkingar(object):
         balance = self._fix_balance(tr_total.select('td')[3].text)
         acquisition_value = self._fix_balance(tr_total.select('td')[4].text)
         key = 'totalt'
-        founds[key] = {'name': name, 'balance': balance,
-                       'acquisition_value': acquisition_value}
+        funds[key] = {'name': name, 'balance': balance,
+                      'acquisition_value': acquisition_value}
 
-        return founds
+        return funds
 
-    def fetch_isk_founds_detail(self, id):
-        """Fetch and return ISK founds detail"""
+    def fetch_isk_funds_detail(self, id):
+        """Fetch and return ISK funds detail"""
 
         # Fetch the bank page
         soup = self._fetch_bank_form_page(id)
 
-        # Build requst for the ISK founds page
+        # Build requst for the ISK funds page
         hidden_inputs = self._hidden_inputs_as_dict(soup)
         data = {}
         data['sideMenuForm_SUBMIT'] = 1
@@ -221,7 +221,7 @@ class Lansforsarkingar(object):
         data['javax.faces.ViewState'] = hidden_inputs['javax.faces.ViewState']
         data['_token'] = self.next_token
 
-        # Request the ISK founds detail page
+        # Request the ISK funds detail page
         path = ('/im/jsp/investmentsavingsaccount/view/'
                 'viewInvestmentSavingsAccountOverview.jsf')
         req = self.session.post(self.base_url + path, data=data)
@@ -229,14 +229,14 @@ class Lansforsarkingar(object):
 
         self.next_token = self._parse_token(req.text)
 
-        return self.parse_isk_founds(soup)
+        return self.parse_isk_funds(soup)
 
-    def parse_isk_founds(self, soup):
-        """Parse ISK founds details from soup"""
+    def parse_isk_funds(self, soup):
+        """Parse ISK funds details from soup"""
 
-        isk_founds = {}
+        isk_funds = {}
 
-        # Founds
+        # Funds
         table = soup.select('#viewInvestmentSavingsFundHoldingsForm:'
                             'fundDataTable')[0]
         for tr in table.select('tbody tr'):
@@ -246,8 +246,8 @@ class Lansforsarkingar(object):
 
             key = self._bank_name_key(name)
 
-            isk_founds[key] = {'name': name, 'balance': balance,
-                               'acquisition_value': acquisition_value}
+            isk_funds[key] = {'name': name, 'balance': balance,
+                              'acquisition_value': acquisition_value}
 
         # Total
         tr_total = table.select('tfoot tr')[0]
@@ -255,7 +255,7 @@ class Lansforsarkingar(object):
         balance = self._fix_balance(tr_total.select('td')[3].text)
         acquisition_value = self._fix_balance(tr_total.select('td')[4].text)
         key = 'totalt'
-        isk_founds[key] = {'name': name, 'balance': balance,
-                           'acquisition_value': acquisition_value}
+        isk_funds[key] = {'name': name, 'balance': balance,
+                          'acquisition_value': acquisition_value}
 
-        return isk_founds
+        return isk_funds

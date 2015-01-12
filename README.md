@@ -43,18 +43,18 @@ A Python library for accessing bank data by parsing Länsförsäkringars online 
       'new_balance': 2000.0},
       ...
 
-## View founds overview
-    lf.founds
+## View funds overview
+    lf.funds
 
-    ipdb> pprint(lf.founds)
+    ipdb> pprint(lf.funds)
     {u'fonder': {'balance': 4900.0,
                  'id': u'ID',
                  'name': u'Fonder'}}
 
-## Fetch founds detail
-    lf.fetch_founds_detail(id)
+## Fetch funds detail
+    lf.fetch_funds_detail(id)
 
-    ipdb> pprint(lf.fetch_founds_detail(lf.founds['fonder']['id']))
+    ipdb> pprint(lf.fetch_funds_detail(lf.funds['fonder']['id']))
     {u'fond_1': {'acquisition_value': 2000.0,
                        'balance': 2200.0,
                        'name': u'Fond 1'},
@@ -65,10 +65,10 @@ A Python library for accessing bank data by parsing Länsförsäkringars online 
                 'balance': 4900.0,
                 'name': 'Totalt'}}
 
-## View ISK founds overview
-    lf.isk_founds
+## View ISK funds overview
+    lf.isk_funds
 
-    ipdb> pprint(lf.isk_founds)
+    ipdb> pprint(lf.isk_funds)
     {u'isk_1': {'balance': 4000.0,
                          'id': u'ID',
                          'name': u'ISK 1'},
@@ -76,10 +76,10 @@ A Python library for accessing bank data by parsing Länsförsäkringars online 
                      'id': u'ID',
                      'name': u'ISK 2'}}
 
-## Fetch ISK founds detail
-    lf.fetch_isk_founds_detail(ID)
+## Fetch ISK funds detail
+    lf.fetch_isk_funds_detail(ID)
 
-    ipdb> pprint(lf.fetch_isk_founds_detail(lf.isk_founds['isk_1']['id']))
+    ipdb> pprint(lf.fetch_isk_funds_detail(lf.isk_funds['isk_1']['id']))
     {u'isk_fond_1': {'acquisition_value': 3800.0,
                        'balance': 4000.0,
                        'name': u'ISK Fond 1'},
