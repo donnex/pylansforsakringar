@@ -1,261 +1,199 @@
+import json
+import logging
 import re
 
 import requests
 from bs4 import BeautifulSoup
-from slugify import slugify
+
+logger = logging.getLogger(__name__)
+
+
+class LansforsarkingarError(Exception):
+    pass
 
 
 class Lansforsarkingar(object):
+    BASE_URL = 'https://secure246.lansforsakringar.se'
+    HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_5) '
+               'AppleWebKit/537.36 (KHTML, like Gecko) '
+               'Chrome/59.0.3071.109 Safari/537.36'}
+
     def __init__(self, personal_identity_number, pin_code):
-        self.base_url = 'https://secure246.lansforsakringar.se'
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_5) '
-                          'AppleWebKit/537.36 (KHTML, like Gecko) '
-                          'Chrome/39.0.2171.95 Safari/537.36'}
+        if not personal_identity_number or not pin_code:
+            raise LansforsarkingarError('Missing personal identity number '
+                                        '({}) or pin code ({})'.format(
+                                            personal_identity_number,
+                                            pin_code))
 
         self.personal_identity_number = personal_identity_number
         self.pin_code = pin_code
 
         self.accounts = {}
-        self.saving_accounts = {}
-        self.funds = {}
-        self.isk_funds = {}
+
+        self.token = None
+        self.json_token = None
+        self.last_req_body = None
 
         # Setup requests session
         self.session = requests.Session()
-        self.session.headers.update(self.headers)
+        self.session.headers.update(self.HEADERS)
 
-    def _hidden_inputs_as_dict(self, soup):
-        """Return all hidden inputs in a soup as a dict"""
+    def _hidden_inputs_as_dict(self, elements):
+        """Return all hidden inputs in elements list as a dict."""
 
         data = {}
-        for input in soup.select('form input[type=hidden]'):
-            data[input.attrs['name']] = input.attrs.get('value', '')
+
+        # Make sure elements is a list
+        if not isinstance(elements, list):
+            elements = [elements]
+
+        for element in elements:
+            for input in element.select('input[type=hidden]'):
+                data[input.attrs['name']] = input.attrs.get('value', '')
 
         return data
 
     def _fix_balance(self, balance):
-        """Fix the bank balance and return it as a float"""
+        """Fix the bank balance and return it as a float."""
 
         return float(balance.replace(',', '.').replace(' ', ''))
 
-    def _bank_name_key(self, name):
-        """Return a key from account name"""
-
-        return slugify(name).lower().replace('-', '_')
-
     def _parse_token(self, body):
-        """Parse the token from body"""
+        """Parse the token from body."""
 
-        token_match = re.search('token\s*=[\s\']*(\d+)', body)
+        token_match = re.search('var\s*token\s*=[\s\']*(\d+)', body)
         return int(token_match.group(1))
 
-    def _fetch_bank_form_page(self, id):
-        """Fetch a bank form page, return the soup"""
+    def _parse_json_token(self, body):
+        """Parse the JSON token from body."""
 
-        # Build POST data with hidden inputs from bank overview page
-        hidden_inputs = self._hidden_inputs_as_dict(self.bank_overview_soup)
-        data = {}
-        data['bankOverviewForm_SUBMIT'] = 1
-        data['newUc'] = 'true'
-        data['bankOverviewForm:_idcl'] = id
-        data['bankOverviewForm:_link_hidden_'] = ''
-        data['javax.faces.ViewState'] = hidden_inputs['javax.faces.ViewState']
-        data['_token'] = self.next_token
+        token_match = re.search('var\s*jsonToken\s*=[\s\']*([\w-]+)', body)
+        return token_match.group(1)
 
-        # Request the ISK funds page to get the menu and build next POST
-        path = '/im/im/bank.jsf'
-        req = self.session.post(self.base_url + path, data=data)
-        soup = BeautifulSoup(req.content)
+    def _parse_tokens(self, body):
+        """Parse and save tokens from body."""
 
-        self.next_token = self._parse_token(req.text)
+        old_token = self.token
+        old_json_token = self.json_token
 
-        return soup
+        self.token = self._parse_token(body)
+        self.json_token = self._parse_json_token(body)
+
+        logger.debug('Token set to: %s (Old: %s)', self.token, old_token)
+        logger.debug('JSON token set to: %s (Old: %s)', self.json_token,
+                     old_json_token)
+
+    def _parse_account_transactions(self, body):
+        """Parse and return list of all account transactions."""
+
+        transactions = []
+
+        soup = BeautifulSoup(body, 'html.parser')
+        for row in soup.select('.history.data-list-wrapper-inner tr'):
+            transaction = {
+                'date': row.select('td')[1].text,
+                'type': row.select('td')[2].select('span')[0].text,
+                'text': row.select('td')[2].select('div')[0].text,
+                'amount': self._fix_balance(row.select('td')[3].text)
+            }
+            transactions.append(transaction)
+
+        return transactions
 
     def login(self):
-        """Login to the bank"""
+        """Login to the bank."""
 
         # Fetch and parse hidden inputs from login page
-        req = self.session.get(self.base_url + '/im/login/privat')
+        req = self.session.get(self.BASE_URL + '/im/login/privat')
 
-        soup = BeautifulSoup(req.content)
+        # Get the login form
+        soup = BeautifulSoup(req.content, 'html.parser')
+        login_form = soup.select('#pPin_form')
 
         # Post login to current URL
         login_post_url = req.url
 
         # Build POST data with login settings and hidden inputs
-        data = self._hidden_inputs_as_dict(soup)
-        data['selMechanism'] = 'PIN-kod'
-        data['btnLogIn.x'] = 0
-        data['btnLogIn.y'] = 0
-        data['inputPersonalNumber'] = self.personal_identity_number
-        data['inputPinCode'] = self.pin_code
+        data = self._hidden_inputs_as_dict(login_form)
+        data['pPin_inp'] = self.personal_identity_number
+        data['pPinKod_inp'] = self.pin_code
 
         # Login request
         req = self.session.post(login_post_url, data=data)
+        self.last_req_body = req.content
 
-        self.next_token = self._parse_token(req.text)
-
-    def fetch_bank_overview(self):
-        """Fetch bank overview page"""
-
-        # Fetch bank overview
-        path = '/im/im/bank.jsf?newUc=true&_token={}'.format(self.next_token)
-        req = self.session.get(self.base_url + path)
-        soup = BeautifulSoup(req.content)
-
-        self.next_token = self._parse_token(req.text)
-
-        self.bank_overview_soup = soup
-
-        # Accounts
-        for tr in soup.select('#bankOverviewForm:commonAccountDataTable '
-                              'tbody tr'):
-            name = tr.select('td')[0].text
-            balance = self._fix_balance(tr.select('td')[2].text)
-
-            key = self._bank_name_key(name)
-            id = tr.select('a')[0].attrs['id']
-
-            self.accounts[key] = {'name': name, 'balance': balance, 'id': id}
-
-        # Saving accounts
-        for tr in soup.select('#bankOverviewForm:savingAccountDataTable '
-                              'tbody tr'):
-            name = tr.select('td')[0].text
-            balance = self._fix_balance(tr.select('td')[2].text)
-
-            key = self._bank_name_key(name)
-            id = tr.select('a')[0].attrs['id']
-
-            self.saving_accounts[key] = {'name': name, 'balance': balance,
-                                         'id': id}
-
-        # Funds
-        for tr in soup.select('#bankOverviewForm:fundsDataTable tbody tr'):
-            name = tr.select('td')[0].text
-            balance = self._fix_balance(tr.select('td')[2].text)
-
-            key = self._bank_name_key(name)
-            id = tr.select('a')[0].attrs['id']
-
-            self.funds[key] = {'name': name, 'balance': balance, 'id': id}
-
-        # ISK funds
-        for tr in soup.select('#bankOverviewForm:iskDataTable tbody tr'):
-            name = tr.select('td')[0].text
-            balance = self._fix_balance(tr.select('td')[2].text)
-
-            key = self._bank_name_key(name)
-            id = tr.select('a')[0].attrs['id']
-
-            self.isk_funds[key] = {'name': name, 'balance': balance, 'id': id}
+        self._parse_tokens(req.text)
 
         return True
 
-    def fetch_account_details(self, id):
-        """Fetch and return account details"""
+    def get_accounts(self):
+        """Fetch bank accounts by using json.
 
-        # Fetch the bank page
-        soup = self._fetch_bank_form_page(id)
+        This uses the same json api URL that the browser does when logged in.
+        It also need to send the CSRFToken (JSON token) in order to work.
+        """
 
-        actions = []
+        data = {
+            'customerId': self.personal_identity_number,
+            'responseControl': {
+                'filter': {
+                    'includes': ['ALL']
+                }
+            }
+        }
 
-        # Parse actions from table
-        table = soup.select('#viewAccountListTransactionsForm:'
-                            'transactionsDataTable')[0]
-        for tr in table.select('tbody tr'):
-            date = tr.select('td')[1].text
-            description = tr.select('td')[2].text
-            amount = self._fix_balance(tr.select('td')[3].text)
-            new_balance = self._fix_balance(tr.select('td')[4].text)
+        headers = {'Content-type': 'application/json',
+                   'Accept': 'application/json',
+                   'CSRFToken': self.json_token}
+        path = '/im/json/overview/getaccounts'
+        req = self.session.post(
+            self.BASE_URL + path,
+            data=json.dumps(data),
+            headers=headers)
 
-            actions.append({'date': date, 'description': description,
-                            'amount': amount, 'new_balance': new_balance})
+        for account in req.json()['response']['accounts']:
+            self.accounts[account['number']] = account
+            del(self.accounts[account['number']]['number'])
 
-        return actions
+        return self.accounts
 
-    def fetch_funds_detail(self, id):
-        """Fetch and return funds detail"""
+    def get_account_transactions(self, account_number):
+        """Fetch and return account transactions for account_number."""
 
-        # Fetch the bank page
-        soup = self._fetch_bank_form_page(id)
+        logger.debug('Fetching account transactions for account %s',
+                     account_number)
 
-        funds = {}
+        # Get javax.faces.ViewState from the last request
+        last_req_hidden_inputs = self._hidden_inputs_as_dict(
+            BeautifulSoup(self.last_req_body, 'html.parser'))
 
-        # Parse funds
-        table = soup.select('#mutualFundList:MutualFundList')[0]
-        for tr in table.select('tbody tr'):
-            name = tr.select('td a')[0].text
-            balance = self._fix_balance(tr.select('td')[3].text)
-            acquisition_value = self._fix_balance(tr.select('td')[4].text)
+        data = {
+            'dialog-overview_showAccount': 'Submit',
+            'menuLinks_SUBMIT': 1,
+            'menuLinks:_idcl': '',
+            'menuLinks:_link_hidden_': '',
+            'javax.faces.ViewState': last_req_hidden_inputs.get(
+                'javax.faces.ViewState'),
+            '_token': self.token,
+            'productId': account_number
+        }
 
-            key = self._bank_name_key(name)
+        path = '/im/im/csw.jsf'
+        req = self.session.post(self.BASE_URL + path, data=data)
+        self.last_req_body = req.content
 
-            funds[key] = {'name': name, 'balance': balance,
-                          'acquisition_value': acquisition_value}
+        logger.debug('Transaction request response code %s', req.status_code)
 
-        # Total
-        tr_total = table.select('tfoot tr')[0]
-        name = 'Totalt'
-        balance = self._fix_balance(tr_total.select('td')[3].text)
-        acquisition_value = self._fix_balance(tr_total.select('td')[4].text)
-        key = 'totalt'
-        funds[key] = {'name': name, 'balance': balance,
-                      'acquisition_value': acquisition_value}
+        self._parse_tokens(req.text)
 
-        return funds
+        # Parse transactions
+        transactions = self._parse_account_transactions(req.text)
 
-    def fetch_isk_funds_detail(self, id):
-        """Fetch and return ISK funds detail"""
+        # Request was ok but but no transactions were found. Try to refetch.
+        # Requests seems to loose the connections sometimes with the message
+        # "Resetting dropped connection". This should work around that
+        # problem.
+        if req.status_code == requests.codes.ok and not transactions:
+            transactions = self.get_account_transactions(account_number)
 
-        # Fetch the bank page
-        soup = self._fetch_bank_form_page(id)
-
-        # Build requst for the ISK funds page
-        hidden_inputs = self._hidden_inputs_as_dict(soup)
-        data = {}
-        data['sideMenuForm_SUBMIT'] = 1
-        data['sideMenuForm:_link_hidden_'] = ''
-        data['sideMenuForm:_idcl'] = 'sideMenuForm_sidemenu_item0_item2'
-        data['javax.faces.ViewState'] = hidden_inputs['javax.faces.ViewState']
-        data['_token'] = self.next_token
-
-        # Request the ISK funds detail page
-        path = ('/im/jsp/investmentsavingsaccount/view/'
-                'viewInvestmentSavingsAccountOverview.jsf')
-        req = self.session.post(self.base_url + path, data=data)
-        soup = BeautifulSoup(req.content)
-
-        self.next_token = self._parse_token(req.text)
-
-        return self.parse_isk_funds(soup)
-
-    def parse_isk_funds(self, soup):
-        """Parse ISK funds details from soup"""
-
-        isk_funds = {}
-
-        # Funds
-        table = soup.select('#viewInvestmentSavingsFundHoldingsForm:'
-                            'fundDataTable')[0]
-        for tr in table.select('tbody tr'):
-            name = tr.select('td span')[0].text
-            balance = self._fix_balance(tr.select('td')[3].text)
-            acquisition_value = self._fix_balance(tr.select('td')[4].text)
-
-            key = self._bank_name_key(name)
-
-            isk_funds[key] = {'name': name, 'balance': balance,
-                              'acquisition_value': acquisition_value}
-
-        # Total
-        tr_total = table.select('tfoot tr')[0]
-        name = 'Totalt'
-        balance = self._fix_balance(tr_total.select('td')[3].text)
-        acquisition_value = self._fix_balance(tr_total.select('td')[4].text)
-        key = 'totalt'
-        isk_funds[key] = {'name': name, 'balance': balance,
-                          'acquisition_value': acquisition_value}
-
-        return isk_funds
+        return transactions

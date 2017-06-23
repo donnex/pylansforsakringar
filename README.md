@@ -1,89 +1,47 @@
-# About
-A Python library for accessing bank data by parsing Länsförsäkringars online bank.
+# pylansforsakringar
 
-# Usage
-## Setup and login
-    lf = Lansforsarkingar(PERSONAL_IDENTITY_NUMBER, PIN_CODE)
-    lf.login()
-    lf.fetch_bank_overview()
+A Python library for accessing bank data from Länsförsäkringars online bank. It uses both web scraping and an available JSON API that the browser uses.
 
-## View accounts overview
-    lf.accounts
+## Usage
 
-    ipdb> pprint(lf.accounts)
-    {u'konto_1': {'balance': 1865.0,
-                     'id': u'ID',
-                     'name': u'Konto 1'},
-     u'konto_2': {'balance': 2000.0,
-                 'id': u'ID',
-                 'name': u'Konto 2'}}
+### Setup and login
 
-## View saving accounts overview
-    lf.saving_accounts
+```
+from lansforsakringar import Lansforsarkingar
+lf = Lansforsarkingar(PERSONAL_IDENTITY_NUMBER, PIN_CODE)
+lf.login()
+```
 
-    ipdb> pprint(lf.saving_accounts)
-    {u'spar_1': {'balance': 2000.0,
-                          'id': u'ID',
-                          'name': u'Spar 1'},
-     u'spar_2': {'balance': 3000.0,
-                      'id': u'ID',
-                      'name': u'Spar 2'}}
+### View accounts overview
 
-## Fetch account details
-    lf.fetch_account_details(id)
+```
+lf.get_accounts()
 
-    ipdb> pprint(lf.fetch_account_details(lf.accounts['konto_1']['id']))
-    [{'amount': -55.0,
-      'date': u'2015-01-07',
-      'description': u'DESCRIPTION',
-      'new_balance': 1865.0},
-     {'amount': -135.0,
-      'date': u'2015-01-06',
-      'description': u'DESCRIPTION',
-      'new_balance': 2000.0},
-      ...
+{u'12345678': {u'availableBalance': 10.25,
+               u'currentBalance': 10.25,
+               u'name': u'Privat',
+               u'type': u'PRIMARY_ACCOUNT_OWNER'},
+ u'87654321': {u'availableBalance': 2000.0,
+               u'currentBalance': 2000.0,
+               u'name': u'Privat spar',
+               u'type': u'PRIMARY_ACCOUNT_OWNER'}}
+```
 
-## View funds overview
-    lf.funds
+### View transactions for account number
 
-    ipdb> pprint(lf.funds)
-    {u'fonder': {'balance': 4900.0,
-                 'id': u'ID',
-                 'name': u'Fonder'}}
+```
+lf.get_account_transactions('12345678')
 
-## Fetch funds detail
-    lf.fetch_funds_detail(id)
-
-    ipdb> pprint(lf.fetch_funds_detail(lf.funds['fonder']['id']))
-    {u'fond_1': {'acquisition_value': 2000.0,
-                       'balance': 2200.0,
-                       'name': u'Fond 1'},
-     u'fond_2': {'acquisition_value': 2500.0,
-                       'balance': 2700.0,
-                       'name': u'Fond 2'},
-     'totalt': {'acquisition_value': 4500.0,
-                'balance': 4900.0,
-                'name': 'Totalt'}}
-
-## View ISK funds overview
-    lf.isk_funds
-
-    ipdb> pprint(lf.isk_funds)
-    {u'isk_1': {'balance': 4000.0,
-                         'id': u'ID',
-                         'name': u'ISK 1'},
-     u'isk_2': {'balance': 5000.0,
-                     'id': u'ID',
-                     'name': u'ISK 2'}}
-
-## Fetch ISK funds detail
-    lf.fetch_isk_funds_detail(ID)
-
-    ipdb> pprint(lf.fetch_isk_funds_detail(lf.isk_funds['isk_1']['id']))
-    {u'isk_fond_1': {'acquisition_value': 3800.0,
-                       'balance': 4000.0,
-                       'name': u'ISK Fond 1'},
-     u'isk_fond_2': {'acquisition_value': 4800.0,
-                       'balance': 5000.0,
-                       'name': u'ISK Fond 2'},
-     'totalt': {'acquisition_value': 8600.0, 'balance': 9000.0, 'name': 'Totalt'}}
+[{'amount': -10.0,
+  'date': u'2017-06-22',
+  'text': u'Example 1',
+  'type': u'Betalning'},
+ {'amount': -20.0,
+  'date': u'2017-06-21',
+  'text': u'Example 2',
+  'type': u'Betalning'},
+ {'amount': -30.0,
+  'date': u'2017-06-20',
+  'text': u'Example 3',
+  'type': u'Betalning'}]
+```

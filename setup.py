@@ -2,8 +2,8 @@ from distutils.core import setup
 
 setup(
     name='pylansforsakringar',
-    version='1.0.1',
-    description='Lansforsakringar Python library (scraping)',
+    version='2.0.0',
+    description='Lansforsakringar Python library (json + scraping)',
     py_modules=['lansforsakringar'],
 
     author='Daniel Johansson',
@@ -13,6 +13,5 @@ setup(
     install_requires=[
         'requests',
         'beautifulsoup4',
-        'awesome-slugify',
     ]
 )
