@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 
 import requests
@@ -104,7 +105,15 @@ class Lansforsarkingar(object):
         """Login to the bank."""
 
         # Fetch and parse hidden inputs from login page
-        req = self.session.get(self.BASE_URL + '/im/login/privat')
+        # Use specific CA bundle to fix SSL verify problems if set as env.
+        verify = True
+
+        override_ca_bundle = os.getenv('OVERRIDE_CA_BUNDLE')
+        if override_ca_bundle:
+            verify = override_ca_bundle
+
+        req = self.session.get(self.BASE_URL + '/im/login/privat',
+                               verify=verify)
 
         # Get the login form
         soup = BeautifulSoup(req.content, 'html.parser')
