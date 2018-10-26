@@ -9,11 +9,11 @@ from bs4 import BeautifulSoup
 logger = logging.getLogger(__name__)
 
 
-class LansforsarkingarError(Exception):
+class LansforsakringarError(Exception):
     pass
 
 
-class Lansforsarkingar(object):
+class Lansforsakringar(object):
     BASE_URL = 'https://secure246.lansforsakringar.se'
     HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_5) '
                'AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -21,7 +21,7 @@ class Lansforsarkingar(object):
 
     def __init__(self, personal_identity_number, pin_code):
         if not personal_identity_number or not pin_code:
-            raise LansforsarkingarError('Missing personal identity number '
+            raise LansforsakringarError('Missing personal identity number '
                                         '({}) or pin code ({})'.format(
                                             personal_identity_number,
                                             pin_code))
