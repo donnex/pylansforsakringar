@@ -92,16 +92,17 @@ class Lansforsakringar(object):
         transactions = []
 
         decoded = json.loads(json_string)
-        for row in decoded["response"]["transactions"]["historicalTransactions"]:
-            transaction = {
-                'bookKeepingDate': row["bookKeepingDate"],
-                'transactionDate': row["transactionDate"],
-                'type': row["transactionType"],
-                'text': row["transactionText"],
-                'amount': row["amount"],
-                'comment': row["comment"]
-            }
-            transactions.append(transaction)
+        if "historicalTransactions" in decoded["response"]["transactions"]:
+            for row in decoded["response"]["transactions"]["historicalTransactions"]:
+                transaction = {
+                    'bookKeepingDate': row["bookKeepingDate"],
+                    'transactionDate': row["transactionDate"],
+                    'type': row["transactionType"],
+                    'text': row["transactionText"],
+                    'amount': row["amount"],
+                    'comment': row["comment"]
+                }
+                transactions.append(transaction)
 
         return transactions
 
