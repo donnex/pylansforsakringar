@@ -7,7 +7,9 @@ import requests
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
-
+logger.setLevel(logging.ERROR)
+ch = logging.StreamHandler()
+logger.addHandler(ch)
 
 class LansforsakringarError(Exception):
     pass
@@ -84,18 +86,20 @@ class Lansforsakringar(object):
         logger.debug('JSON token set to: %s (Old: %s)', self.json_token,
                      old_json_token)
 
-    def _parse_account_transactions(self, body):
+    def _parse_account_transactions(self, json_string):
         """Parse and return list of all account transactions."""
 
         transactions = []
 
-        soup = BeautifulSoup(body, 'html.parser')
-        for row in soup.select('.history.data-list-wrapper-inner tr'):
+        decoded = json.loads(json_string)
+        for row in decoded["response"]["transactions"]["historicalTransactions"]:
             transaction = {
-                'date': row.select('td')[1].text,
-                'type': row.select('td')[2].select('span')[0].text,
-                'text': row.select('td')[2].select('div')[0].text,
-                'amount': self._fix_balance(row.select('td')[3].text)
+                'bookKeepingDate': row["bookKeepingDate"],
+                'transactionDate': row["transactionDate"],
+                'type': row["transactionType"],
+                'text': row["transactionText"],
+                'amount': row["amount"],
+                'comment': row["comment"]
             }
             transactions.append(transaction)
 
@@ -166,43 +170,53 @@ class Lansforsakringar(object):
 
         return self.accounts
 
-    def get_account_transactions(self, account_number):
+    def get_account_transactions(self, account_number, from_date = None, to_date = None):
         """Fetch and return account transactions for account_number."""
-
+        if from_date is not None:
+            from_date_str = from_date.strftime('%Y-%m-%d')
+        else:
+            from_date_str = ""
+        if to_date is not None:
+            to_date_str = to_date.strftime('%Y-%m-%d')
+        else:
+            to_date_str = ""
         logger.debug('Fetching account transactions for account %s',
                      account_number)
-
-        # Get javax.faces.ViewState from the last request
-        last_req_hidden_inputs = self._hidden_inputs_as_dict(
-            BeautifulSoup(self.last_req_body, 'html.parser'))
-
         data = {
-            'dialog-overview_showAccount': 'Submit',
-            'menuLinks_SUBMIT': 1,
-            'menuLinks:_idcl': '',
-            'menuLinks:_link_hidden_': '',
-            'javax.faces.ViewState': last_req_hidden_inputs.get(
-                'javax.faces.ViewState'),
-            '_token': self.token,
-            'productId': account_number
-        }
+            'accountNumber': account_number,
+            "currentPageNumber": 0,
+            "searchCriterion": {
+                "fromDate": from_date_str,
+                "toDate": to_date_str,
+                "fromAmount":"",
+                "toAmount":""
+                }
+            }
+        logger.debug(data)
 
-        path = '/im/im/csw.jsf'
-        req = self.session.post(self.BASE_URL + path, data=data)
-        self.last_req_body = req.content
+        headers = {'Content-type': 'application/json',
+                   'Accept': 'application/json',
+                   'CSRFToken': self.json_token}
+        path = '/im/json/account/getaccounttransactions'
+        req = self.session.post(
+            self.BASE_URL + path,
+            data=json.dumps(data),
+            headers=headers)
 
         logger.debug('Transaction request response code %s', req.status_code)
 
-        self._parse_tokens(req.text)
+        # self._parse_tokens(req.text)
+        logger.debug(req.text)
 
         # Parse transactions
         transactions = self._parse_account_transactions(req.text)
+        logger.debug(transactions)
 
         # Request was ok but but no transactions were found. Try to refetch.
         # Requests seems to loose the connections sometimes with the message
         # "Resetting dropped connection". This should work around that
         # problem.
-        if req.status_code == requests.codes.ok and not transactions:
-            transactions = self.get_account_transactions(account_number)
+        #if req.status_code == requests.codes.ok and not transactions:
+        #    transactions = self.get_account_transactions(account_number)
 
         return transactions
