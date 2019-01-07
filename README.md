@@ -45,3 +45,21 @@ lf.get_account_transactions('12345678')
   'text': u'Example 3',
   'type': u'Betalning'}]
 ```
+
+## Pin certificate authority
+Sometimes, the Comodo certificate is no accepted, probably because it is not in the certifi package yet. If you want to provide your own CA bundle, download the certificate for the web interface in your browser and store it. In this example, it is called `secure246lansforsakringarse.crt`.
+
+Furthermore, download the intermediate certificate and the final certificate from Comodo:
+* https://support.comodo.com/index.php?/Knowledgebase/Article/View/968/108/intermediate-ca-2-comodo-rsa-organization-validation-secure-server-ca-sha-2
+* https://support.comodo.com/index.php?/Knowledgebase/Article/View/969/108/root-comodo-rsa-certification-authority-sha-2
+
+Put them all together in a file
+```
+cat secure246lansforsakringarse.crt comodorsaorganizationvalidationsecureserverca.crt comodorsacertificationauthority.crt > comodo.ca-bundle
+```
+
+and then set the environment variable OVERRIDE_CA_BUNDLE to the path of the `comodo.ca-bundle` file:
+```
+$ export OVERRIDE_CA_BUNDLE=comodo.ca-bundle
+$ python
+```
