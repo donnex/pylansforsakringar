@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import sys
 
 import requests
 from bs4 import BeautifulSoup
@@ -65,6 +66,12 @@ class Lansforsakringar(object):
         """Parse the token from body."""
 
         token_match = re.search('var\s*token\s*=[\s\']*(\d+)', body)
+        if token_match is None:
+            if "Tekniskt fel" in body:
+                print("Technical error")
+            else:
+                print("Token not found in {}".format(body), file=sys.stderr)
+            return
         return int(token_match.group(1))
 
     def _parse_json_token(self, body):
@@ -92,19 +99,22 @@ class Lansforsakringar(object):
         transactions = []
 
         decoded = json.loads(json_string)
-        if "historicalTransactions" in decoded["response"]["transactions"]:
-            for row in decoded["response"]["transactions"]["historicalTransactions"]:
-                transaction = {
-                    'bookKeepingDate': row["bookKeepingDate"],
-                    'transactionDate': row["transactionDate"],
-                    'type': row["transactionType"],
-                    'text': row["transactionText"],
-                    'amount': row["amount"],
-                    'comment': row["comment"]
-                }
-                transactions.append(transaction)
+        try:
+            if "historicalTransactions" in decoded["response"]["transactions"]:
+                for row in decoded["response"]["transactions"]["historicalTransactions"]:
+                    transaction = {
+                        'bookKeepingDate': row["bookKeepingDate"],
+                        'transactionDate': row["transactionDate"],
+                        'type': row["transactionType"],
+                        'text': row["transactionText"],
+                        'amount': row["amount"],
+                        'comment': row["comment"]
+                    }
+                    transactions.append(transaction)
 
-        return transactions
+            return transactions
+        except KeyError as e:
+            print("Error: {}, JSON: {}".format(e, decoded))
 
     def login(self):
         """Login to the bank."""
