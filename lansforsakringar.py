@@ -93,12 +93,11 @@ class Lansforsakringar(object):
         logger.debug('JSON token set to: %s (Old: %s)', self.json_token,
                      old_json_token)
 
-    def _parse_account_transactions(self, json_string):
+    def _parse_account_transactions(self, decoded):
         """Parse and return list of all account transactions."""
 
         transactions = []
 
-        decoded = json.loads(json_string)
         try:
             if "historicalTransactions" in decoded["response"]["transactions"]:
                 for row in decoded["response"]["transactions"]["historicalTransactions"]:
@@ -193,35 +192,45 @@ class Lansforsakringar(object):
             to_date_str = ""
         logger.debug('Fetching account transactions for account %s',
                      account_number)
-        data = {
-            'accountNumber': account_number,
-            "currentPageNumber": 0,
-            "searchCriterion": {
-                "fromDate": from_date_str,
-                "toDate": to_date_str,
-                "fromAmount":"",
-                "toAmount":""
+        pageNumber = 0
+        moreExist = True
+        transactions = []
+
+        while moreExist:
+            data = {
+                'accountNumber': account_number,
+                "currentPageNumber": pageNumber,
+                "searchCriterion": {
+                    "fromDate": from_date_str,
+                    "toDate": to_date_str,
+                    "fromAmount":"",
+                    "toAmount":""
+                    }
                 }
-            }
-        logger.debug(data)
+            logger.debug(data)
 
-        headers = {'Content-type': 'application/json',
-                   'Accept': 'application/json',
-                   'CSRFToken': self.json_token}
-        path = '/im/json/account/getaccounttransactions'
-        req = self.session.post(
-            self.BASE_URL + path,
-            data=json.dumps(data),
-            headers=headers)
+            headers = {'Content-type': 'application/json',
+                       'Accept': 'application/json',
+                       'CSRFToken': self.json_token}
+            path = '/im/json/account/getaccounttransactions'
+            req = self.session.post(
+                self.BASE_URL + path,
+                data=json.dumps(data),
+                headers=headers)
 
-        logger.debug('Transaction request response code %s', req.status_code)
+            logger.debug('Transaction request response code %s', req.status_code)
 
-        # self._parse_tokens(req.text)
-        logger.debug(req.text)
+            # self._parse_tokens(req.text)
+            logger.debug(req.text)
 
-        # Parse transactions
-        transactions = self._parse_account_transactions(req.text)
-        logger.debug(transactions)
+            # Parse transactions
+            decoded = json.loads(req.text)
+
+            moreExist = decoded["response"]["transactions"]["moreExist"]
+            pageNumber += 1
+
+            transactions += self._parse_account_transactions(decoded)
+            logger.debug(transactions)
 
         # Request was ok but but no transactions were found. Try to refetch.
         # Requests seems to loose the connections sometimes with the message
