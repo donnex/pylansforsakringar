@@ -110,7 +110,16 @@ class Lansforsakringar(object):
                         'comment': row["comment"]
                     }
                     transactions.append(transaction)
-
+            if "upcomingTransactions" in decoded["response"]["transactions"]:
+                for row in decoded["response"]["transactions"]["upcomingTransactions"]:
+                    transaction = {
+                        'transactionDate': row["transactionDate"],
+                        'type': row["transactionType"],
+                        'text': row["transactionText"],
+                        'amount': row["amount"],
+                        'comment': row["comment"]
+                    }
+                    transactions.append(transaction)
             return transactions
         except KeyError as e:
             print("Error: {}, JSON: {}".format(e, decoded))
@@ -190,8 +199,6 @@ class Lansforsakringar(object):
             to_date_str = to_date.strftime('%Y-%m-%d')
         else:
             to_date_str = ""
-        logger.debug('Fetching account transactions for account %s',
-                     account_number)
         pageNumber = 0
         moreExist = True
         transactions = []
@@ -203,10 +210,10 @@ class Lansforsakringar(object):
                 "searchCriterion": {
                     "fromDate": from_date_str,
                     "toDate": to_date_str,
-                    "fromAmount":"",
-                    "toAmount":""
-                    }
+                    "fromAmount": "",
+                    "toAmount": ""
                 }
+            }
             logger.debug(data)
 
             headers = {'Content-type': 'application/json',
