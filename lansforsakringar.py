@@ -3,8 +3,11 @@ import logging
 import os
 import re
 import sys
-
+import io
+import base64
 import requests
+import time
+from PIL import Image
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
@@ -12,26 +15,100 @@ logger.setLevel(logging.ERROR)
 ch = logging.StreamHandler()
 logger.addHandler(ch)
 
+
 class LansforsakringarError(Exception):
     pass
 
 
-class Lansforsakringar(object):
+class LansforsakringarBankIDLogin:
+    """
+    Lansforsakringar does not support password based login anymore
+    So we need to support BankID based login.
+    This is not easy, as we need a human in the loop operating the app
+    """
+    BASE_URL = 'https://secure127.lansforsakringar.se'
+    HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.109 Safari/537.36'}
+
+    def __init__(self, personnummer):
+        self.personnummer = personnummer
+        self.session = requests.Session()
+        self.session.headers.update(self.HEADERS)
+
+        self.token = None
+
+        verify = True
+        override_ca_bundle = os.getenv('OVERRIDE_CA_BUNDLE')
+        if override_ca_bundle:
+            verify = override_ca_bundle
+
+        # load initial cookies, might be needed
+        self.first_req = self.session.get('https://secure246.lansforsakringar.se/im/privat/login', verify=verify)
+        cookie_obj = requests.cookies.create_cookie(domain='secure127.lansforsakringar.se',name='mech',value='pMBankID')
+        self.session.cookies.set_cookie(cookie_obj)
+
+    def get_token(self):
+        if self.token is None:
+            url = '/lflogin/login.aspx/startBankIdClient'
+            self.session.headers.update({'Content-Type': 'application/json; charset=utf-8', 'Accept': 'application/json, text/javascript, */*; q=0.01'})
+            req = self.session.post(self.BASE_URL + url, data="{{DataValue: \"{}:false\" }}".format(self.personnummer))
+            data_resp = json.loads(req.content)
+            self.token = data_resp["d"].split(',')
+        return self.token
+
+    def get_qr(self):
+        url = '/lflogin/login.aspx/GetQRCode'
+        token = self.get_token()[0]
+        data = "{{autostarttoken: \"{}\"}}".format(token)
+        req = self.session.post(self.BASE_URL + url, data=data)
+        image_base = json.loads(req.content)["d"]
+        image_byte = base64.b64decode(image_base)
+        image = Image.open(io.BytesIO(image_byte))
+        image.show()
+
+    def wait_for_redirect(self):
+        url = '/lflogin/login.aspx/BankIdCollect'
+        token = self.get_token()[1]
+        data = "{{DataValue: \"{}\" }}".format(token)
+        self.session.headers.update({'Referer': self.first_req.url})
+
+        wait_ended = False
+        redirect = None
+        step1 = False
+        step2 = False
+        while not wait_ended:
+            req = self.session.post(self.BASE_URL + url, data=data)
+            resp = json.loads(req.content)
+            #print(resp["d"])
+            if resp["d"] == "1;Starta BankID-appen på din mobil eller surfplatta och tryck på QR-ikonen.":
+                if not step1:
+                    step1 = True
+                    print("Starta BankID-appen på din mobil eller surfplatta och tryck på QR-ikonen.")
+            elif resp["d"] == "1;Skriv in din säkerhetskod för Mobilt bankID på 6-8 tecken och tryck på legitimera eller avbryt.":
+                if not step2:
+                    step2 = True
+                    print("Skriv in din säkerhetskod för Mobilt bankID på 6-8 tecken och tryck på legitimera eller avbryt.")
+            elif step1 and step2 and "{url}" in resp["d"]:
+                redirect = resp["d"].replace("0;{url}", "")
+                wait_ended = True
+            elif resp["d"] == "0;Åtgärden avbruten. Försök igen":
+                print("An error occured. Try again in a few minutes.")
+                return
+            elif resp["d"] == "0;MobilBidInvalidParameters":
+                print("An error occured. Try again in a few minutes.")
+                return
+            else:
+                print("Unkown message: {}".format(resp["d"]))
+            time.sleep(2)
+        return redirect
+
+class Lansforsakringar:
     BASE_URL = 'https://secure246.lansforsakringar.se'
     HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_5) '
                'AppleWebKit/537.36 (KHTML, like Gecko) '
                'Chrome/59.0.3071.109 Safari/537.36'}
 
-    def __init__(self, personal_identity_number, pin_code):
-        if not personal_identity_number or not pin_code:
-            raise LansforsakringarError('Missing personal identity number '
-                                        '({}) or pin code ({})'.format(
-                                            personal_identity_number,
-                                            pin_code))
-
+    def __init__(self, personal_identity_number):
         self.personal_identity_number = personal_identity_number
-        self.pin_code = pin_code
-
         self.accounts = {}
 
         self.token = None
@@ -124,34 +201,19 @@ class Lansforsakringar(object):
         except KeyError as e:
             print("Error: {}, JSON: {}".format(e, decoded))
 
-    def login(self):
-        """Login to the bank."""
+    def login(self, url):
+        """
+        Login to the web bank
+        url: URL after a successfull auth, e.g. the one from LansforsakringarBankIDLogin.wait_for_redirect()
+        """
 
-        # Fetch and parse hidden inputs from login page
-        # Use specific CA bundle to fix SSL verify problems if set as env.
         verify = True
 
         override_ca_bundle = os.getenv('OVERRIDE_CA_BUNDLE')
         if override_ca_bundle:
             verify = override_ca_bundle
 
-        req = self.session.get(self.BASE_URL + '/im/login/privat',
-                               verify=verify)
-
-        # Get the login form
-        soup = BeautifulSoup(req.content, 'html.parser')
-        login_form = soup.select('#pPin_form')
-
-        # Post login to current URL
-        login_post_url = req.url
-
-        # Build POST data with login settings and hidden inputs
-        data = self._hidden_inputs_as_dict(login_form)
-        data['pPin_inp'] = self.personal_identity_number
-        data['pPinKod_inp'] = self.pin_code
-
-        # Login request
-        req = self.session.post(login_post_url, data=data)
+        req = self.session.get(url, verify=verify)
         self.last_req_body = req.content
 
         self._parse_tokens(req.text)
@@ -189,7 +251,7 @@ class Lansforsakringar(object):
 
         return self.accounts
 
-    def get_account_transactions(self, account_number, from_date = None, to_date = None):
+    def get_account_transactions(self, account_number, from_date=None, to_date=None):
         """Fetch and return account transactions for account_number."""
         if from_date is not None:
             from_date_str = from_date.strftime('%Y-%m-%d')
