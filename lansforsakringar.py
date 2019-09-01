@@ -41,7 +41,7 @@ class LansforsakringarBankIDLogin:
         if override_ca_bundle:
             verify = override_ca_bundle
 
-        # load initial cookies, might be needed
+        # load initial cookies, seem to be needed
         self.first_req = self.session.get('https://secure246.lansforsakringar.se/im/privat/login', verify=verify)
         cookie_obj = requests.cookies.create_cookie(domain='secure127.lansforsakringar.se',name='mech',value='pMBankID')
         self.session.cookies.set_cookie(cookie_obj)
@@ -55,15 +55,22 @@ class LansforsakringarBankIDLogin:
             self.token = data_resp["d"].split(',')
         return self.token
 
-    def get_qr(self):
+    def get_qr_bytes(self):
         url = '/lflogin/login.aspx/GetQRCode'
         token = self.get_token()[0]
         data = "{{autostarttoken: \"{}\"}}".format(token)
         req = self.session.post(self.BASE_URL + url, data=data)
         image_base = json.loads(req.content)["d"]
         image_byte = base64.b64decode(image_base)
-        image = Image.open(io.BytesIO(image_byte))
-        image.show()
+        return image_byte
+
+    def get_qr_as_image(self):
+        image = Image.open(io.BytesIO(self.get_qr_bytes()))
+        return image
+
+    def save_qr_as_file(self, filename):
+        with open(filename, 'wb') as file:
+            file.write(self.get_qr_bytes())
 
     def wait_for_redirect(self):
         url = '/lflogin/login.aspx/BankIdCollect'
@@ -78,7 +85,6 @@ class LansforsakringarBankIDLogin:
         while not wait_ended:
             req = self.session.post(self.BASE_URL + url, data=data)
             resp = json.loads(req.content)
-            #print(resp["d"])
             if resp["d"] == "1;Starta BankID-appen på din mobil eller surfplatta och tryck på QR-ikonen.":
                 if not step1:
                     step1 = True
