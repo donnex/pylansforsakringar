@@ -9,6 +9,7 @@ import requests
 import time
 from PIL import Image
 from bs4 import BeautifulSoup
+import pyqrcode
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)
@@ -53,6 +54,8 @@ class LansforsakringarBankIDLogin:
             req = self.session.post(self.BASE_URL + url, data="{{DataValue: \"{}:false\" }}".format(self.personnummer))
             data_resp = json.loads(req.content)
             self.token = data_resp["d"].split(',')
+            if self.token is None or len(self.token) != 2:
+                raise Exception("No token fetched.")
         return self.token
 
     def get_qr_bytes(self):
@@ -63,6 +66,16 @@ class LansforsakringarBankIDLogin:
         image_base = json.loads(req.content)["d"]
         image_byte = base64.b64decode(image_base)
         return image_byte
+
+    def get_qr_string(self):
+        return "bankid:///?autostarttoken={}".format(self.get_token()[0])
+
+    def get_qr_terminal(self):
+        """
+        Get Linux terminal printout of QR Code
+        """
+        bankidqr = pyqrcode.create(self.get_qr_string())
+        return bankidqr.terminal()
 
     def get_qr_as_image(self):
         image = Image.open(io.BytesIO(self.get_qr_bytes()))
