@@ -130,7 +130,6 @@ class Lansforsakringar:
         self.personal_identity_number = personal_identity_number
         self.accounts = {}
 
-        self.token = None
         self.json_token = None
         self.last_req_body = None
 
@@ -158,34 +157,19 @@ class Lansforsakringar:
 
         return float(balance.replace(',', '.').replace(' ', ''))
 
-    def _parse_token(self, body):
-        """Parse the token from body."""
-
-        token_match = re.search('var\s*token\s*=[\s\']*(\d+)', body)
-        if token_match is None:
-            if "Tekniskt fel" in body:
-                print("Technical error")
-            else:
-                print("Token not found in {}".format(body), file=sys.stderr)
-            return
-        return int(token_match.group(1))
-
     def _parse_json_token(self, body):
         """Parse the JSON token from body."""
 
-        token_match = re.search('var\s*jsonToken\s*=[\s\']*([\w-]+)', body)
+        token_match = re.search('jsontoken=([\w-]+)', body)
         return token_match.group(1)
 
-    def _parse_tokens(self, body):
+    def _parse_token(self, body):
         """Parse and save tokens from body."""
 
-        old_token = self.token
         old_json_token = self.json_token
 
-        self.token = self._parse_token(body)
         self.json_token = self._parse_json_token(body)
 
-        logger.debug('Token set to: %s (Old: %s)', self.token, old_token)
         logger.debug('JSON token set to: %s (Old: %s)', self.json_token,
                      old_json_token)
 
@@ -235,7 +219,7 @@ class Lansforsakringar:
         req = self.session.get(url, verify=verify)
         self.last_req_body = req.content
 
-        self._parse_tokens(req.text)
+        self._parse_token(req.text)
 
         return True
 
@@ -308,7 +292,7 @@ class Lansforsakringar:
 
             logger.debug('Transaction request response code %s', req.status_code)
 
-            # self._parse_tokens(req.text)
+            # self._parse_token(req.text)
             logger.debug(req.text)
 
             # Parse transactions
