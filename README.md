@@ -6,11 +6,21 @@ A Python library for accessing bank data from Länsförsäkringars online bank. 
 
 ### Setup and login
 
+Standard login method is the QR-code based Mobile BankID. To print the QR code to the terminal, use this code:
+
 ```
 from lansforsakringar import Lansforsarkingar
-lf = Lansforsarkingar(PERSONAL_IDENTITY_NUMBER, PIN_CODE)
-lf.login()
+lf = Lansforsakringar(PERSONAL_IDENTITY_NUMBER)
+login = LansforsakringarBankIDLogin(PERSONAL_IDENTITY_NUMBER)
+print(login.get_qr_terminal())
+url = login.wait_for_redirect()
+if url is None:
+  return False
+lf.login(url)
 ```
+
+There is also support for getting the QR code as an image.
+
 
 ### View accounts overview
 
