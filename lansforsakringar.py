@@ -70,6 +70,9 @@ class LansforsakringarBankIDLogin:
     def get_qr_string(self):
         return "bankid:///?autostarttoken={}".format(self.get_token()[0])
 
+    def get_intent(self):
+        return "intent:///?autostarttoken={}&redirect=null#Intent;scheme=bankid;package=com.bankid.bus;end".format(self.get_token()[0])
+
     def get_qr_terminal(self):
         """
         Get Linux terminal printout of QR Code
@@ -102,10 +105,10 @@ class LansforsakringarBankIDLogin:
                 if not step1:
                     step1 = True
                     print("Starta BankID-appen på din mobil eller surfplatta och tryck på QR-ikonen.")
-            elif resp["d"] == "1;Skriv in din säkerhetskod för Mobilt bankID på 6-8 tecken och tryck på legitimera eller avbryt.":
+            elif resp["d"] == "1;Legitimera dig i BankID-appen.":
                 if not step2:
                     step2 = True
-                    print("Skriv in din säkerhetskod för Mobilt bankID på 6-8 tecken och tryck på legitimera eller avbryt.")
+                    print("Legitimera dig i BankID-appen.")
             elif step1 and step2 and "{url}" in resp["d"]:
                 redirect = resp["d"].replace("0;{url}", "")
                 wait_ended = True
