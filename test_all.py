@@ -6,6 +6,7 @@ from .lansforsakringar import Lansforsakringar
 
 MOCK_PERSONNUMMER = '201701012393'  # https://www.dataportal.se/sv/datasets/6_67959/testpersonnummer
 
+
 def load_test_response(filename):
     with open(f"test_data/{filename}", "r") as f:
         data = f.read()
@@ -13,6 +14,7 @@ def load_test_response(filename):
         mock_response.text = data
         mock_response.json.return_value = json.loads(data)
         return mock_response
+
 
 class TestLansforsakringar:
     @patch('requests.Session.post')
@@ -23,7 +25,7 @@ class TestLansforsakringar:
         accounts = lans.get_accounts()
         mock_post.assert_called_once_with(
             Lansforsakringar.BASE_URL + '/im/json/overview/getaccounts',
-            data = json.dumps({
+            data=json.dumps({
                 'customerId': MOCK_PERSONNUMMER,
                 'responseControl': {
                     'filter': {
@@ -31,7 +33,7 @@ class TestLansforsakringar:
                     }
                 }
             }),
-            headers = {'Content-type': 'application/json', 'Accept': 'application/json', 'CSRFToken': None}
+            headers={'Content-type': 'application/json', 'Accept': 'application/json', 'CSRFToken': None}
         )
         assert isinstance(accounts, dict)
         # TODO: sometimes the account number is doubly string quoted
@@ -52,5 +54,3 @@ class TestLansforsakringar:
         assert account_2["currentBalance"] == 12345.33
         assert account_2["availableBalance"] == 12345.33
         assert account_2["type"] == "PRIMARY_ACCOUNT_OWNER"
-
-

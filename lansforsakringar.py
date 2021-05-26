@@ -2,13 +2,11 @@ import json
 import logging
 import os
 import re
-import sys
 import io
 import base64
 import requests
 import time
 from PIL import Image
-from bs4 import BeautifulSoup
 import pyqrcode
 
 logger = logging.getLogger(__name__)
@@ -134,31 +132,10 @@ class Lansforsakringar:
         self.accounts = {}
 
         self.json_token = None
-        self.last_req_body = None
 
         # Setup requests session
         self.session = requests.Session()
         self.session.headers.update(self.HEADERS)
-
-    def _hidden_inputs_as_dict(self, elements):
-        """Return all hidden inputs in elements list as a dict."""
-
-        data = {}
-
-        # Make sure elements is a list
-        if not isinstance(elements, list):
-            elements = [elements]
-
-        for element in elements:
-            for input in element.select('input[type=hidden]'):
-                data[input.attrs['name']] = input.attrs.get('value', '')
-
-        return data
-
-    def _fix_balance(self, balance):
-        """Fix the bank balance and return it as a float."""
-
-        return float(balance.replace(',', '.').replace(' ', ''))
 
     def _parse_json_token(self, body):
         """Parse the JSON token from body."""
@@ -173,8 +150,7 @@ class Lansforsakringar:
 
         self.json_token = self._parse_json_token(body)
 
-        logger.debug('JSON token set to: %s (Old: %s)', self.json_token,
-                     old_json_token)
+        logger.debug(f'JSON token set to: {self.json_token} (Old: {old_json_token})')
 
     def _parse_account_transactions(self, decoded):
         """Parse and return list of all account transactions."""
@@ -210,7 +186,7 @@ class Lansforsakringar:
     def login(self, url):
         """
         Login to the web bank
-        url: URL after a successfull auth, e.g. the one from LansforsakringarBankIDLogin.wait_for_redirect()
+        url: URL after a successful auth, e.g. the one from LansforsakringarBankIDLogin.wait_for_redirect()
         """
 
         verify = True
@@ -220,7 +196,6 @@ class Lansforsakringar:
             verify = override_ca_bundle
 
         req = self.session.get(url, verify=verify)
-        self.last_req_body = req.content
 
         self._parse_token(req.text)
 
@@ -306,12 +281,5 @@ class Lansforsakringar:
 
             transactions += self._parse_account_transactions(decoded)
             logger.debug(transactions)
-
-        # Request was ok but but no transactions were found. Try to refetch.
-        # Requests seems to loose the connections sometimes with the message
-        # "Resetting dropped connection". This should work around that
-        # problem.
-        #if req.status_code == requests.codes.ok and not transactions:
-        #    transactions = self.get_account_transactions(account_number)
 
         return transactions

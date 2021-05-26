@@ -1,6 +1,6 @@
 # pylansforsakringar
 
-A Python library for accessing bank data from Länsförsäkringars online bank. It uses both web scraping and an available JSON API that the browser uses.
+A Python library for accessing bank data from Länsförsäkringars online bank. It uses an available JSON API that the browser uses.
 
 ## Usage
 
