@@ -137,6 +137,30 @@ class Lansforsakringar:
         self.session = requests.Session()
         self.session.headers.update(self.HEADERS)
 
+    def _save_token_and_cookies(self) -> None:
+        with open('lans_token.txt', 'w') as file:
+            file.write(self.json_token)
+
+        with open('lans_cookies.txt', 'w') as file:
+            file.write(json.dumps(self.session.cookies.items()))
+
+    def _load_token_and_cookies(self) -> None:
+        try:
+            with open('lans_token.txt', 'r') as file:
+                token = file.read().replace('\n', '')
+                self.json_token = token
+
+            with open('lans_cookies.txt', 'r') as file:
+                self.session.cookies.update(json.loads(file.read()))
+        except FileNotFoundError:
+            pass
+
+    def check_token_and_cookies(self) -> bool:
+        self._load_token_and_cookies()
+
+        if self.get_accounts() is False:
+            return False
+
     def _parse_json_token(self, body):
         """Parse the JSON token from body."""
 
@@ -149,6 +173,7 @@ class Lansforsakringar:
         old_json_token = self.json_token
 
         self.json_token = self._parse_json_token(body)
+        self._save_token_and_cookies()
 
         logger.debug(f'JSON token set to: {self.json_token} (Old: {old_json_token})')
 
@@ -226,11 +251,15 @@ class Lansforsakringar:
             data=json.dumps(data),
             headers=headers)
 
-        for account in req.json()['response']['accounts']:
-            self.accounts[account['number']] = account
-            del(self.accounts[account['number']]['number'])
+        try:
+            for account in req.json()['response']['accounts']:
+                self.accounts[account['number']] = account
+                del(self.accounts[account['number']]['number'])
 
-        return self.accounts
+            return self.accounts
+        except json.decoder.JSONDecodeError:
+            logger.error("JSON Decode error on get_accounts.")
+            return False
 
     def get_account_transactions(self, account_number, from_date=None, to_date=None):
         """Fetch and return account transactions for account_number."""
