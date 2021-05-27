@@ -49,7 +49,7 @@ class LansforsakringarBankIDLogin:
         if self.token is None:
             url = '/lflogin/login.aspx/startBankIdClient'
             self.session.headers.update({'Content-Type': 'application/json; charset=utf-8', 'Accept': 'application/json, text/javascript, */*; q=0.01'})
-            req = self.session.post(self.BASE_URL + url, data="{{DataValue: \"{}:false\" }}".format(self.personnummer))
+            req = self.session.post(self.BASE_URL + url, data=f"{{DataValue: \"{self.personnummer}:false\" }}")
             data_resp = json.loads(req.content)
             self.token = data_resp["d"].split(',')
             if self.token is None or len(self.token) != 2:
@@ -59,17 +59,17 @@ class LansforsakringarBankIDLogin:
     def get_qr_bytes(self):
         url = '/lflogin/login.aspx/GetQRCode'
         token = self.get_token()[0]
-        data = "{{autostarttoken: \"{}\"}}".format(token)
+        data = f"{{autostarttoken: \"{token}\"}}"
         req = self.session.post(self.BASE_URL + url, data=data)
         image_base = json.loads(req.content)["d"]
         image_byte = base64.b64decode(image_base)
         return image_byte
 
     def get_qr_string(self):
-        return "bankid:///?autostarttoken={}".format(self.get_token()[0])
+        return f"bankid:///?autostarttoken={self.get_token()[0]}"
 
     def get_intent(self):
-        return "intent:///?autostarttoken={}&redirect=null#Intent;scheme=bankid;package=com.bankid.bus;end".format(self.get_token()[0])
+        return f"intent:///?autostarttoken={self.get_token()[0]}&redirect=null#Intent;scheme=bankid;package=com.bankid.bus;end"
 
     def get_qr_terminal(self):
         """
@@ -89,7 +89,7 @@ class LansforsakringarBankIDLogin:
     def wait_for_redirect(self):
         url = '/lflogin/login.aspx/BankIdCollect'
         token = self.get_token()[1]
-        data = "{{DataValue: \"{}\" }}".format(token)
+        data = f"{{DataValue: \"{token}\" }}"
         self.session.headers.update({'Referer': self.first_req.url})
 
         wait_ended = False
@@ -117,7 +117,7 @@ class LansforsakringarBankIDLogin:
                 print("An error occured. Try again in a few minutes.")
                 return
             else:
-                print("Unkown message: {}".format(resp["d"]))
+                print(f"Unkown message: {resp['d']}")
             time.sleep(2)
         return redirect
 
@@ -159,7 +159,12 @@ class Lansforsakringar:
         self._load_token_and_cookies()
 
         if self.get_accounts() is False:
+            # request failed, unset data
+            self.json_token = None
+            self.session.cookies.clear()
             return False
+
+        return True
 
     def _parse_json_token(self, body):
         """Parse the JSON token from body."""
@@ -167,15 +172,21 @@ class Lansforsakringar:
         token_match = re.search('jsontoken=([\w-]+)', body)
         return token_match.group(1)
 
-    def _parse_token(self, body):
+    def _parse_token(self, body, use_cache):
         """Parse and save tokens from body."""
 
         old_json_token = self.json_token
 
         self.json_token = self._parse_json_token(body)
-        self._save_token_and_cookies()
+        if use_cache:
+            self._save_token_and_cookies()
 
         logger.debug(f'JSON token set to: {self.json_token} (Old: {old_json_token})')
+
+    def _check_response(self, response) -> None:
+        if "errors" in response.json().keys():
+            raise Exception("Error in response {response}.")
+        return
 
     def _parse_account_transactions(self, decoded):
         """Parse and return list of all account transactions."""
@@ -206,12 +217,14 @@ class Lansforsakringar:
                     transactions.append(transaction)
             return transactions
         except KeyError as e:
-            print("Error: {}, JSON: {}".format(e, decoded))
+            print(f"Error: {e}, JSON: {decoded}")
 
-    def login(self, url):
+    def login(self, url, use_cache=False):
         """
         Login to the web bank
         url: URL after a successful auth, e.g. the one from LansforsakringarBankIDLogin.wait_for_redirect()
+        use_cache: Store token and cookies to disk. Beware that anyone with read access to those files can
+        send requests as you
         """
 
         verify = True
@@ -222,7 +235,10 @@ class Lansforsakringar:
 
         req = self.session.get(url, verify=verify)
 
-        self._parse_token(req.text)
+        with open("login.txt", "w") as f:
+            f.write(req.text)
+
+        self._parse_token(req.text, use_cache)
 
         return True
 
@@ -250,6 +266,11 @@ class Lansforsakringar:
             self.BASE_URL + path,
             data=json.dumps(data),
             headers=headers)
+
+        logger.debug(f'Transaction request response code {req.status_code}.')
+
+        with open("getaccounts.txt", "w") as f:
+            f.write(req.text)
 
         try:
             for account in req.json()['response']['accounts']:
@@ -297,13 +318,14 @@ class Lansforsakringar:
                 data=json.dumps(data),
                 headers=headers)
 
-            logger.debug('Transaction request response code %s', req.status_code)
-
-            # self._parse_token(req.text)
+            logger.debug(f'Transaction request response code {req.status_code}.')
             logger.debug(req.text)
 
+            with open(f"getaccounttransactions_page{pageNumber}.txt", "w") as f:
+                f.write(req.text)
+
             # Parse transactions
-            decoded = json.loads(req.text)
+            decoded = req.json()
 
             moreExist = decoded["response"]["transactions"]["moreExist"]
             pageNumber += 1
