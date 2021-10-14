@@ -222,10 +222,6 @@ class Lansforsakringar:
         self.session.cookies = cookie_jar
         req = self.session.get(self.BASE_URL + '/im/login/privat', verify=verify)
 
-        # TODO: cache cookie jar
-        with open("login.txt", "w") as f:
-            f.write(req.text)
-
         self._parse_token(req.text, use_cache)
 
         return True
