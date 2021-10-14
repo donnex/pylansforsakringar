@@ -9,10 +9,15 @@ import time
 from PIL import Image
 import pyqrcode
 
+logging.basicConfig()
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)
 ch = logging.StreamHandler()
 logger.addHandler(ch)
+
+requests_log = logging.getLogger("urllib3")
+requests_log.setLevel(logging.ERROR)
+requests_log.propagate = True
 
 
 class LansforsakringarError(Exception):
@@ -25,8 +30,12 @@ class LansforsakringarBankIDLogin:
     So we need to support BankID based login.
     This is not easy, as we need a human in the loop operating the app
     """
-    BASE_URL = 'https://secure127.lansforsakringar.se'
-    HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.109 Safari/537.36'}
+    BASE_URL = 'https://api.lansforsakringar.se'
+    CLIENT_ID = 'LFAB-59IjjFXwGDTAB3K1uRHp9qAp'
+    HEADERS = {
+        'User-Agent': 'User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:93.0) Gecko/20100101 Firefox/93.0',
+        'Authorization': f'Atmosphere atmosphere_app_id="LFAB-59IjjFXwGDTAB3K1uRHp9qAp"',
+    }
 
     def __init__(self, personnummer):
         self.personnummer = personnummer
@@ -40,36 +49,24 @@ class LansforsakringarBankIDLogin:
         if override_ca_bundle:
             verify = override_ca_bundle
 
-        # load initial cookies, seem to be needed
-        self.first_req = self.session.get('https://secure246.lansforsakringar.se/im/privat/login', verify=verify)
-        cookie_obj = requests.cookies.create_cookie(domain='secure127.lansforsakringar.se',name='mech',value='pMBankID')
-        self.session.cookies.set_cookie(cookie_obj)
-
     def get_token(self):
         if self.token is None:
-            url = '/lflogin/login.aspx/startBankIdClient'
-            self.session.headers.update({'Content-Type': 'application/json; charset=utf-8', 'Accept': 'application/json, text/javascript, */*; q=0.01'})
-            req = self.session.post(self.BASE_URL + url, data=f"{{DataValue: \"{self.personnummer}:false\" }}")
-            data_resp = json.loads(req.content)
-            self.token = data_resp["d"].split(',')
+            url = self.BASE_URL + '/security/authentication/g2v2/g2/start'
+            self.session.headers.update({
+                'Content-Type': 'application/json;charset=UTF-8',
+                'Accept': 'application/json'
+            })
+            req = self.session.post(url, json={"userId":"","useQRCode":True})
+            self.token = json.loads(req.content)
             if self.token is None or len(self.token) != 2:
                 raise Exception("No token fetched.")
         return self.token
 
-    def get_qr_bytes(self):
-        url = '/lflogin/login.aspx/GetQRCode'
-        token = self.get_token()[0]
-        data = f"{{autostarttoken: \"{token}\"}}"
-        req = self.session.post(self.BASE_URL + url, data=data)
-        image_base = json.loads(req.content)["d"]
-        image_byte = base64.b64decode(image_base)
-        return image_byte
-
     def get_qr_string(self):
-        return f"bankid:///?autostarttoken={self.get_token()[0]}"
+        return f"bankid:///?autostarttoken={self.get_token()['autoStartToken']}"
 
     def get_intent(self):
-        return f"intent:///?autostarttoken={self.get_token()[0]}&redirect=null#Intent;scheme=bankid;package=com.bankid.bus;end"
+        return f"intent:///?autostarttoken={self.get_token()['autoStartToken']}&redirect=null#Intent;scheme=bankid;package=com.bankid.bus;end"
 
     def get_qr_terminal(self):
         """
@@ -78,48 +75,38 @@ class LansforsakringarBankIDLogin:
         bankidqr = pyqrcode.create(self.get_qr_string())
         return bankidqr.terminal()
 
-    def get_qr_as_image(self):
-        image = Image.open(io.BytesIO(self.get_qr_bytes()))
-        return image
-
-    def save_qr_as_file(self, filename):
-        with open(filename, 'wb') as file:
-            file.write(self.get_qr_bytes())
-
-    def wait_for_redirect(self):
-        url = '/lflogin/login.aspx/BankIdCollect'
-        token = self.get_token()[1]
-        data = f"{{DataValue: \"{token}\" }}"
-        self.session.headers.update({'Referer': self.first_req.url})
+    def wait_for_redirect(self) -> requests.cookies.RequestsCookieJar:
+        url = self.BASE_URL + '/security/authentication/g2v2/g2/collect'
+        data = {
+            "clientId": self.CLIENT_ID,
+            "isForCompany": False,
+            "orderRef": self.get_token()['orderRef']
+        }
 
         wait_ended = False
-        redirect = None
+        cookie_jar = None
         step1 = False
         step2 = False
         while not wait_ended:
-            req = self.session.post(self.BASE_URL + url, data=data)
-            resp = json.loads(req.content)
-            if resp["d"] == "1;Starta BankID-appen på din mobil eller surfplatta och tryck på QR-ikonen.":
+            req = self.session.post(url, json=data)
+            resp = req.json()
+            if resp["resultCode"] == "OUTSTANDING_TRANSACTION":
                 if not step1:
                     step1 = True
-                    print("Starta BankID-appen på din mobil eller surfplatta och tryck på QR-ikonen.")
-            elif resp["d"] == "1;Legitimera dig i BankID-appen.":
+                    print("Please scan this QR code.")
+            elif resp["resultCode"] == "USER_SIGN":
                 if not step2:
                     step2 = True
-                    print("Legitimera dig i BankID-appen.")
-            elif step1 and step2 and "{url}" in resp["d"]:
-                redirect = resp["d"].replace("0;{url}", "")
+                    print("Please authenticate in the BankID app.")
+            elif resp["resultCode"] == "COMPLETE":
+                # This call sets a cookie on .lansforsakringar.se, so we just return the whole cookie jar
+                print("Login successful.")
                 wait_ended = True
-            elif resp["d"] == "0;Åtgärden avbruten. Försök igen":
-                print("An error occured. Try again in a few minutes.")
-                return
-            elif resp["d"] == "0;MobilBidInvalidParameters":
-                print("An error occured. Try again in a few minutes.")
-                return
+                cookie_jar = req.cookies
             else:
-                print(f"Unkown message: {resp['d']}")
+                print(f"Unkown message: {resp}")
             time.sleep(2)
-        return redirect
+        return req.cookies
 
 class Lansforsakringar:
     BASE_URL = 'https://secure246.lansforsakringar.se'
@@ -219,10 +206,10 @@ class Lansforsakringar:
         except KeyError as e:
             print(f"Error: {e}, JSON: {decoded}")
 
-    def login(self, url, use_cache=False):
+    def login(self, cookie_jar: requests.cookies.RequestsCookieJar, use_cache=False):
         """
         Login to the web bank
-        url: URL after a successful auth, e.g. the one from LansforsakringarBankIDLogin.wait_for_redirect()
+        cookie_jar: A CookieJar from the LansforsakringarBankIDLogin
         use_cache: Store token and cookies to disk. Beware that anyone with read access to those files can
         send requests as you
         """
@@ -232,9 +219,10 @@ class Lansforsakringar:
         override_ca_bundle = os.getenv('OVERRIDE_CA_BUNDLE')
         if override_ca_bundle:
             verify = override_ca_bundle
+        self.session.cookies = cookie_jar
+        req = self.session.get(self.BASE_URL + '/im/login/privat', verify=verify)
 
-        req = self.session.get(url, verify=verify)
-
+        # TODO: cache cookie jar
         with open("login.txt", "w") as f:
             f.write(req.text)
 
