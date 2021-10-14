@@ -318,3 +318,36 @@ class Lansforsakringar:
             logger.debug(transactions)
 
         return transactions
+
+    def get_cards(self):
+        data = {
+            "customerId": self.personal_identity_number,
+            "responseControl": {
+                "profile": {
+                    "customerId": self.personal_identity_number,
+                    "profileType": "CUSTOMER",
+                    "subjectUserId": None,
+                },
+                "content":{
+                    "includes":[
+                        {"include":"AVAILABLE_BALANCE"},
+                        {"include":"DEBIT_ACCOUNT_NAME"}
+                    ]},
+                    "filter": {
+                        "includes":[{
+                            "cardStatus":["ACTIVE","TEMPORARY_BLOCKED","NOT_ACTIVATED"]
+                        }]
+                    }
+                }
+            }
+
+        headers = {'Content-type': 'application/json',
+                   'Accept': '*/*'}
+        path = '/es/card/getcards/3.1'
+        req = self.session.post(
+            self.BASE_URL + path,
+            json=data,
+            headers=headers)
+
+        data = req.json()
+        return data['response']['cards']
