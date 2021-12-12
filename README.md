@@ -8,14 +8,14 @@ A Python library for accessing bank data from Länsförsäkringars online bank. 
 
 Standard login method is the QR-code based Mobile BankID. To print the QR code to the terminal, use this code:
 
-```
-from lansforsakringar import Lansforsarkingar
+```Python
+from lansforsakringar import Lansforsakringar
 lf = Lansforsakringar(PERSONAL_IDENTITY_NUMBER)
 login = LansforsakringarBankIDLogin(PERSONAL_IDENTITY_NUMBER)
 print(login.get_qr_terminal())
 url = login.wait_for_redirect()
 if url is None:
-  return False
+    return False
 lf.login(url)
 ```
 
@@ -24,8 +24,8 @@ There is also support for getting the QR code as an image.
 
 ### View accounts overview
 
-```
-lf.get_accounts()
+```Python
+>>> lf.get_accounts()
 
 {u'12345678': {u'availableBalance': 10.25,
                u'currentBalance': 10.25,
@@ -39,8 +39,8 @@ lf.get_accounts()
 
 ### View transactions for account number
 
-```
-lf.get_account_transactions('12345678')
+```Python
+>>> lf.get_account_transactions('12345678')
 
 [{'amount': -10.0,
   'date': u'2017-06-22',
@@ -64,12 +64,12 @@ Furthermore, download the intermediate certificate and the final certificate fro
 * https://support.comodo.com/index.php?/Knowledgebase/Article/View/969/108/root-comodo-rsa-certification-authority-sha-2
 
 Put them all together in a file
-```
+```Bash
 cat secure246lansforsakringarse.crt comodorsaorganizationvalidationsecureserverca.crt comodorsacertificationauthority.crt > comodo.ca-bundle
 ```
 
 and then set the environment variable OVERRIDE_CA_BUNDLE to the path of the `comodo.ca-bundle` file:
-```
+```Bash
 $ export OVERRIDE_CA_BUNDLE=comodo.ca-bundle
 $ python
 ```
