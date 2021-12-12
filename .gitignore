@@ -1,2 +1,6 @@
 *.pyc
 certs
+
+.coverage
+coverage.xml
+htmlcov/

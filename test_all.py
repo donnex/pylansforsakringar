@@ -1,4 +1,5 @@
 from unittest.mock import Mock, patch
+import pytest
 from requests import Response
 import json
 
@@ -24,17 +25,43 @@ class TestLansforsakringarBankIDLogin:
     @patch('requests.Session.post')
     def test_get_token(self, mock_post) -> None:
         mock_post.return_value = read_test_response_from_file('start_token.json', 200)
-        login = LansforsakringarBankIDLogin(MOCK_PERSONNUMMER)
-        token = login.get_token()
+        login_1 = LansforsakringarBankIDLogin(MOCK_PERSONNUMMER)
+        token_1 = login_1.get_token()
 
         mock_post.assert_called_once_with(
             LansforsakringarBankIDLogin.BASE_URL + '/security/authentication/g2v2/g2/start',
             json={'userId': '', 'useQRCode': True},
         )
 
-        assert isinstance(token, dict)
-        assert token['autoStartToken'] == '70ada356-e9d8-4863-b8c7-d07057148c17'
-        assert token['orderRef'] == '2385dd87-2eef-4f0e-82df-6bbe865c302e'
+        assert isinstance(token_1, dict)
+        assert token_1['autoStartToken'] == '70ada356-e9d8-4863-b8c7-d07057148c17'
+        assert token_1['orderRef'] == '2385dd87-2eef-4f0e-82df-6bbe865c302e'
+
+        mock_post.reset_mock()
+
+        # cache is used
+        token_1 = login_1.get_token()
+        mock_post.assert_not_called()
+
+        mock_post.reset_mock()
+
+        # empty response
+        mock_post.return_value = mock_response('{}', 200)
+        login_2 = LansforsakringarBankIDLogin(MOCK_PERSONNUMMER)
+        with pytest.raises(Exception):
+            login_2.get_token()
+
+        # incomplete response 1
+        mock_post.return_value = mock_response('{"autoStartToken": "test1"}', 200)
+        login_3 = LansforsakringarBankIDLogin(MOCK_PERSONNUMMER)
+        with pytest.raises(Exception):
+            login_3.get_token()
+
+        # incomplete response 2
+        mock_post.return_value = mock_response('{"orderRef": "test1"}', 200)
+        login_4 = LansforsakringarBankIDLogin(MOCK_PERSONNUMMER)
+        with pytest.raises(Exception):
+            login_4.get_token()
 
 
 class TestLansforsakringar:
