@@ -2,13 +2,11 @@ import json
 import logging
 import os
 import re
-import io
-import base64
 import requests
 import time
 import pyqrcode
 
-from typing import Union, Optional
+from typing import Union, Optional, Dict
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
 
@@ -37,7 +35,7 @@ class LansforsakringarBankIDLogin:
     CLIENT_ID = 'LFAB-59IjjFXwGDTAB3K1uRHp9qAp'
     HEADERS = {
         'User-Agent': 'User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:93.0) Gecko/20100101 Firefox/93.0',
-        'Authorization': 'Atmosphere atmosphere_app_id="LFAB-59IjjFXwGDTAB3K1uRHp9qAp"',
+        'Authorization': f'Atmosphere atmosphere_app_id="{CLIENT_ID}"',
     }
 
     def __init__(self, personnummer):
@@ -47,7 +45,7 @@ class LansforsakringarBankIDLogin:
 
         self.token = None
 
-    def get_token(self) -> str:
+    def get_token(self) -> Dict[str, Optional[str]]:
         if self.token is None:
             url = self.BASE_URL + '/security/authentication/g2v2/g2/start'
             self.session.headers.update({
@@ -56,15 +54,20 @@ class LansforsakringarBankIDLogin:
             })
             req = self.session.post(url, json={"userId": "", "useQRCode": True})
             self.token = req.json()
-            if self.token is None or len(self.token) != 2:
+            if self.token is None or len(self.token) == 0:
                 raise Exception("No token fetched.")
+            if "orderRef" not in self.token.keys():
+                raise Exception(f"No orderRef in token object {self.token}.")
+            if "autoStartToken" not in self.token.keys():
+                raise Exception(f"No autoStartToken in token object {self.token}.")
         return self.token
 
     def get_qr_string(self) -> str:
         return f"bankid:///?autostarttoken={self.get_token()['autoStartToken']}"
 
     def get_intent(self) -> str:
-        return f"intent:///?autostarttoken={self.get_token()['autoStartToken']}&redirect=null#Intent;scheme=bankid;package=com.bankid.bus;end"
+        return f"intent:///?autostarttoken={self.get_token()['autoStartToken']}" \
+                "&redirect=null#Intent;scheme=bankid;package=com.bankid.bus;end"
 
     def get_qr_terminal(self) -> str:
         """
@@ -125,10 +128,8 @@ class Lansforsakringar:
         with open('lans_token.txt', 'w') as file:
             file.write(self.json_token)
 
-        '''
         with open('lans_url_token.txt', 'w') as file:
             file.write(self.url_token)
-        '''
 
         with open('lans_cookies.txt', 'w') as file:
             file.write(json.dumps(self.session.cookies.items()))
@@ -139,10 +140,8 @@ class Lansforsakringar:
                 token = file.read().replace('\n', '')
                 self.json_token = token
 
-            '''
             with open('lans_url_token.txt', 'r') as file:
                 self.url_token = file.read().replace('\n', '')
-            '''
 
             with open('lans_cookies.txt', 'r') as file:
                 self.session.cookies.update(json.loads(file.read()))
@@ -181,11 +180,6 @@ class Lansforsakringar:
         """Parse and save tokens from body."""
 
         old_json_token = self.json_token
-
-        '''
-        with open('body.txt', 'w') as f:
-            f.write(body)
-        '''
 
         self.json_token = self._parse_json_token(body)
         if use_cache:

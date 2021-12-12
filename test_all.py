@@ -2,25 +2,45 @@ from unittest.mock import Mock, patch
 from requests import Response
 import json
 
-from .lansforsakringar import Lansforsakringar
+from .lansforsakringar import Lansforsakringar, LansforsakringarBankIDLogin
 
 MOCK_PERSONNUMMER = '201701012393'  # https://www.dataportal.se/sv/datasets/6_67959/testpersonnummer
 
 
-def load_test_response(filename, status_code=200):
+def mock_response(data: str, status_code: int) -> Mock:
+    mock_response = Mock(Response)
+    mock_response.text = data
+    mock_response.json.return_value = json.loads(data)
+    mock_response.status_code = status_code
+    return mock_response
+
+
+def read_test_response_from_file(filename: str, status_code: int = 200) -> Mock:
     with open(f"test_data/{filename}", "r") as f:
-        data = f.read()
-        mock_response = Mock(Response)
-        mock_response.text = data
-        mock_response.json.return_value = json.loads(data)
-        mock_response.status_code = status_code
-        return mock_response
+        return mock_response(f.read(), status_code)
+
+
+class TestLansforsakringarBankIDLogin:
+    @patch('requests.Session.post')
+    def test_get_token(self, mock_post) -> None:
+        mock_post.return_value = read_test_response_from_file('start_token.json', 200)
+        login = LansforsakringarBankIDLogin(MOCK_PERSONNUMMER)
+        token = login.get_token()
+
+        mock_post.assert_called_once_with(
+            LansforsakringarBankIDLogin.BASE_URL + '/security/authentication/g2v2/g2/start',
+            json={'userId': '', 'useQRCode': True},
+        )
+
+        assert isinstance(token, dict)
+        assert token['autoStartToken'] == '70ada356-e9d8-4863-b8c7-d07057148c17'
+        assert token['orderRef'] == '2385dd87-2eef-4f0e-82df-6bbe865c302e'
 
 
 class TestLansforsakringar:
     @patch('requests.Session.post')
-    def test_get_accounts(self, mock_post):
-        mock_post.return_value = load_test_response('getaccounts.txt', 200)
+    def test_get_accounts(self, mock_post) -> None:
+        mock_post.return_value = read_test_response_from_file('getaccounts.txt', 200)
 
         lans = Lansforsakringar(MOCK_PERSONNUMMER)
         accounts = lans.get_accounts()
