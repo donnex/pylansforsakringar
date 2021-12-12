@@ -7,32 +7,33 @@ from .lansforsakringar import Lansforsakringar
 MOCK_PERSONNUMMER = '201701012393'  # https://www.dataportal.se/sv/datasets/6_67959/testpersonnummer
 
 
-def load_test_response(filename):
+def load_test_response(filename, status_code=200):
     with open(f"test_data/{filename}", "r") as f:
         data = f.read()
         mock_response = Mock(Response)
         mock_response.text = data
         mock_response.json.return_value = json.loads(data)
+        mock_response.status_code = status_code
         return mock_response
 
 
 class TestLansforsakringar:
     @patch('requests.Session.post')
     def test_get_accounts(self, mock_post):
-        mock_post.return_value = load_test_response('getaccounts.txt')
+        mock_post.return_value = load_test_response('getaccounts.txt', 200)
 
         lans = Lansforsakringar(MOCK_PERSONNUMMER)
         accounts = lans.get_accounts()
         mock_post.assert_called_once_with(
             Lansforsakringar.BASE_URL + '/im/json/overview/getaccounts',
-            data=json.dumps({
+            json={
                 'customerId': MOCK_PERSONNUMMER,
                 'responseControl': {
                     'filter': {
                         'includes': ['ALL']
                     }
                 }
-            }),
+            },
             headers={'Content-type': 'application/json', 'Accept': 'application/json', 'CSRFToken': None}
         )
         assert isinstance(accounts, dict)
