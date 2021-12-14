@@ -1,0 +1,1 @@
+{"response":{"accounts":[{"uncertainClaim":false,"creditAllowed":false,"name":"Privatkonto","number":"'50850045845'","currentBalance":1234.32,"availableBalance":1234.32,"type":"PRIMARY_ACCOUNT_OWNER"},{"uncertainClaim":false,"creditAllowed":false,"name":"Sparkonto","number":"50850045846","currentBalance":12345.33,"availableBalance":12345.33,"type":"PRIMARY_ACCOUNT_OWNER"}]}}

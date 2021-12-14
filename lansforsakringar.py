@@ -2,140 +2,245 @@ import json
 import logging
 import os
 import re
-
 import requests
-from bs4 import BeautifulSoup
+import time
+import pyqrcode
 
+from typing import Union, Optional, Dict
+from datetime import datetime
+from urllib.parse import urlparse, parse_qs
+
+logging.basicConfig()
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.ERROR)
+ch = logging.StreamHandler()
+logger.addHandler(ch)
+
+requests_log = logging.getLogger("urllib3")
+requests_log.setLevel(logging.DEBUG)
+requests_log.propagate = True
 
 
-class LansforsarkingarError(Exception):
+class LansforsakringarError(Exception):
     pass
 
 
-class Lansforsarkingar(object):
-    BASE_URL = 'https://secure246.lansforsakringar.se'
-    HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_5) '
-               'AppleWebKit/537.36 (KHTML, like Gecko) '
-               'Chrome/59.0.3071.109 Safari/537.36'}
+class LansforsakringarBankIDLogin:
+    """
+    Lansforsakringar does not support password based login anymore
+    So we need to support BankID based login.
+    This is not easy, as we need a human in the loop operating the app
+    """
+    BASE_URL = 'https://api.lansforsakringar.se'
+    CLIENT_ID = 'LFAB-59IjjFXwGDTAB3K1uRHp9qAp'
+    HEADERS = {
+        'User-Agent': 'User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:93.0) Gecko/20100101 Firefox/93.0',
+        'Authorization': f'Atmosphere atmosphere_app_id="{CLIENT_ID}"',
+    }
 
-    def __init__(self, personal_identity_number, pin_code):
-        if not personal_identity_number or not pin_code:
-            raise LansforsarkingarError('Missing personal identity number '
-                                        '({}) or pin code ({})'.format(
-                                            personal_identity_number,
-                                            pin_code))
-
-        self.personal_identity_number = personal_identity_number
-        self.pin_code = pin_code
-
-        self.accounts = {}
+    def __init__(self, personnummer):
+        self.personnummer = personnummer
+        self.session = requests.Session()
+        self.session.headers.update(self.HEADERS)
 
         self.token = None
+
+    def get_token(self) -> Dict[str, Optional[str]]:
+        if self.token is None:
+            url = self.BASE_URL + '/security/authentication/g2v2/g2/start'
+            self.session.headers.update({
+                'Content-Type': 'application/json;charset=UTF-8',
+                'Accept': 'application/json'
+            })
+            req = self.session.post(url, json={"userId": "", "useQRCode": True})
+            self.token = req.json()
+            if self.token is None or len(self.token) == 0:
+                raise Exception("No token fetched.")
+            if "orderRef" not in self.token.keys():
+                raise Exception(f"No orderRef in token object {self.token}.")
+            if "autoStartToken" not in self.token.keys():
+                raise Exception(f"No autoStartToken in token object {self.token}.")
+        return self.token
+
+    def get_qr_string(self) -> str:
+        return f"bankid:///?autostarttoken={self.get_token()['autoStartToken']}"
+
+    def get_intent(self) -> str:
+        return f"intent:///?autostarttoken={self.get_token()['autoStartToken']}" \
+                "&redirect=null#Intent;scheme=bankid;package=com.bankid.bus;end"
+
+    def get_qr_terminal(self) -> str:
+        """
+        Get Linux terminal printout of QR Code
+        """
+        bankidqr = pyqrcode.create(self.get_qr_string())
+        return bankidqr.terminal()
+
+    def wait_for_redirect(self) -> requests.cookies.RequestsCookieJar:
+        url = self.BASE_URL + '/security/authentication/g2v2/g2/collect'
+        data = {
+            "clientId": self.CLIENT_ID,
+            "isForCompany": False,
+            "orderRef": self.get_token()['orderRef']
+        }
+
+        wait_ended = False
+        step1 = False
+        step2 = False
+        while not wait_ended:
+            req = self.session.post(url, json=data)
+            resp = req.json()
+            if resp["resultCode"] == "OUTSTANDING_TRANSACTION":
+                if not step1:
+                    step1 = True
+                    print("Please scan this QR code.")
+            elif resp["resultCode"] == "USER_SIGN":
+                if not step2:
+                    step2 = True
+                    print("Please authenticate in the BankID app.")
+            elif resp["resultCode"] == "COMPLETE":
+                # This call sets a cookie on .lansforsakringar.se, so we just return the whole cookie jar
+                print("Login successful.")
+                wait_ended = True
+            else:
+                print(f"Unkown message: {resp}")
+            time.sleep(2)
+        return req.cookies
+
+
+class Lansforsakringar:
+    BASE_URL = 'https://secure246.lansforsakringar.se'
+    HEADERS = {
+        'User-Agent': 'User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:93.0) Gecko/20100101 Firefox/93.0'
+    }
+
+    def __init__(self, personal_identity_number):
+        self.personal_identity_number = personal_identity_number
+        self.accounts = {}
+
         self.json_token = None
-        self.last_req_body = None
 
         # Setup requests session
         self.session = requests.Session()
         self.session.headers.update(self.HEADERS)
 
-    def _hidden_inputs_as_dict(self, elements):
-        """Return all hidden inputs in elements list as a dict."""
+    def _save_token_and_cookies(self) -> None:
+        with open('lans_token.txt', 'w') as file:
+            file.write(self.json_token)
 
-        data = {}
+        with open('lans_url_token.txt', 'w') as file:
+            file.write(self.url_token)
 
-        # Make sure elements is a list
-        if not isinstance(elements, list):
-            elements = [elements]
+        with open('lans_cookies.txt', 'w') as file:
+            file.write(json.dumps(self.session.cookies.items()))
 
-        for element in elements:
-            for input in element.select('input[type=hidden]'):
-                data[input.attrs['name']] = input.attrs.get('value', '')
+    def _load_token_and_cookies(self) -> None:
+        try:
+            with open('lans_token.txt', 'r') as file:
+                token = file.read().replace('\n', '')
+                self.json_token = token
 
-        return data
+            with open('lans_url_token.txt', 'r') as file:
+                self.url_token = file.read().replace('\n', '')
 
-    def _fix_balance(self, balance):
-        """Fix the bank balance and return it as a float."""
+            with open('lans_cookies.txt', 'r') as file:
+                self.session.cookies.update(json.loads(file.read()))
+        except FileNotFoundError:
+            pass
 
-        return float(balance.replace(',', '.').replace(' ', ''))
+    def check_token_and_cookies(self) -> bool:
+        self._load_token_and_cookies()
 
-    def _parse_token(self, body):
-        """Parse the token from body."""
-
-        token_match = re.search('var\s*token\s*=[\s\']*(\d+)', body)
-        return int(token_match.group(1))
-
-    def _parse_json_token(self, body):
-        """Parse the JSON token from body."""
-
-        token_match = re.search('var\s*jsonToken\s*=[\s\']*([\w-]+)', body)
-        return token_match.group(1)
-
-    def _parse_tokens(self, body):
-        """Parse and save tokens from body."""
-
-        old_token = self.token
-        old_json_token = self.json_token
-
-        self.token = self._parse_token(body)
-        self.json_token = self._parse_json_token(body)
-
-        logger.debug('Token set to: %s (Old: %s)', self.token, old_token)
-        logger.debug('JSON token set to: %s (Old: %s)', self.json_token,
-                     old_json_token)
-
-    def _parse_account_transactions(self, body):
-        """Parse and return list of all account transactions."""
-
-        transactions = []
-
-        soup = BeautifulSoup(body, 'html.parser')
-        for row in soup.select('.history.data-list-wrapper-inner tr'):
-            transaction = {
-                'date': row.select('td')[1].text,
-                'type': row.select('td')[2].select('span')[0].text,
-                'text': row.select('td')[2].select('div')[0].text,
-                'amount': self._fix_balance(row.select('td')[3].text)
-            }
-            transactions.append(transaction)
-
-        return transactions
-
-    def login(self):
-        """Login to the bank."""
-
-        # Fetch and parse hidden inputs from login page
-        # Use specific CA bundle to fix SSL verify problems if set as env.
         verify = True
 
         override_ca_bundle = os.getenv('OVERRIDE_CA_BUNDLE')
         if override_ca_bundle:
             verify = override_ca_bundle
+        req = self.session.get(self.BASE_URL + '/im/login/privat', verify=verify)
+        url = urlparse(req.url)
+        if url.path != "/im/im/csw.jsf":
+            print(f"Login failed, now on {url.path}")
+            # request failed, unset data
+            self.json_token = None
+            self.session.cookies.clear()
+            return False
 
-        req = self.session.get(self.BASE_URL + '/im/login/privat',
-                               verify=verify)
-
-        # Get the login form
-        soup = BeautifulSoup(req.content, 'html.parser')
-        login_form = soup.select('#pPin_form')
-
-        # Post login to current URL
-        login_post_url = req.url
-
-        # Build POST data with login settings and hidden inputs
-        data = self._hidden_inputs_as_dict(login_form)
-        data['pPin_inp'] = self.personal_identity_number
-        data['pPinKod_inp'] = self.pin_code
-
-        # Login request
-        req = self.session.post(login_post_url, data=data)
-        self.last_req_body = req.content
-
-        self._parse_tokens(req.text)
+        # store url token
+        self.url_token = parse_qs(url.query)['_token']
 
         return True
 
-    def get_accounts(self):
+    def _parse_json_token(self, body: str) -> str:
+        """Parse the JSON token from body."""
+
+        token_match = re.search('jsontoken=([\w-]+)', body)
+        return token_match.group(1)
+
+    def _parse_token(self, body: str, use_cache: bool) -> None:
+        """Parse and save tokens from body."""
+
+        old_json_token = self.json_token
+
+        self.json_token = self._parse_json_token(body)
+        if use_cache:
+            self._save_token_and_cookies()
+
+        logger.debug(f'JSON token set to: {self.json_token} (Old: {old_json_token})')
+
+    def _parse_account_transactions(self, decoded: dict) -> dict:
+        """Parse and return list of all account transactions."""
+
+        transactions = []
+
+        try:
+            if "historicalTransactions" in decoded["response"]["transactions"]:
+                for row in decoded["response"]["transactions"]["historicalTransactions"]:
+                    transaction = {
+                        'bookKeepingDate': row["bookKeepingDate"],
+                        'transactionDate': row["transactionDate"],
+                        'type': row["transactionType"],
+                        'text': row["transactionText"],
+                        'amount': row["amount"],
+                        'comment': row["comment"]
+                    }
+                    transactions.append(transaction)
+            if "upcomingTransactions" in decoded["response"]["transactions"]:
+                for row in decoded["response"]["transactions"]["upcomingTransactions"]:
+                    transaction = {
+                        'transactionDate': row["transactionDate"],
+                        'type': row["transactionType"],
+                        'text': row["transactionText"],
+                        'amount': row["amount"],
+                        'comment': row["comment"]
+                    }
+                    transactions.append(transaction)
+            return transactions
+        except KeyError as e:
+            print(f"Error: {e}, JSON: {decoded}")
+
+    def login(self, cookie_jar: requests.cookies.RequestsCookieJar, use_cache=False) -> bool:
+        """
+        Login to the web bank
+        cookie_jar: A CookieJar from the LansforsakringarBankIDLogin
+        use_cache: Store token and cookies to disk. Beware that anyone with read access to those files can
+        send requests as you until they time out
+        """
+
+        verify = True
+
+        override_ca_bundle = os.getenv('OVERRIDE_CA_BUNDLE')
+        if override_ca_bundle:
+            verify = override_ca_bundle
+        self.session.cookies = cookie_jar
+        req = self.session.get(self.BASE_URL + '/im/login/privat', verify=verify)
+        url = urlparse(req.url)
+        self.url_token = parse_qs(url.query)['_token']
+
+        self._parse_token(req.text, use_cache)
+
+        return True
+
+    def get_accounts(self) -> Union[bool, dict]:
         """Fetch bank accounts by using json.
 
         This uses the same json api URL that the browser does when logged in.
@@ -157,52 +262,105 @@ class Lansforsarkingar(object):
         path = '/im/json/overview/getaccounts'
         req = self.session.post(
             self.BASE_URL + path,
-            data=json.dumps(data),
+            json=data,
             headers=headers)
 
-        for account in req.json()['response']['accounts']:
-            self.accounts[account['number']] = account
-            del(self.accounts[account['number']]['number'])
+        logger.debug(f'Transaction request response code {req.status_code}.')
 
-        return self.accounts
+        try:
+            response = req.json()
+            for account in response['response']['accounts']:
+                self.accounts[account['number']] = account
+                del(self.accounts[account['number']]['number'])
 
-    def get_account_transactions(self, account_number):
+            return self.accounts
+        except json.decoder.JSONDecodeError:
+            logger.error("JSON Decode error on get_accounts.")
+            return False
+        except KeyError:
+            logger.error("KeyError on account loading.")
+            return False
+
+    def get_account_transactions(
+            self, account_number: str, from_date: Optional[datetime] = None, to_date: Optional[datetime] = None
+            ) -> list:
         """Fetch and return account transactions for account_number."""
+        if from_date is not None:
+            from_date_str = from_date.strftime('%Y-%m-%d')
+        else:
+            from_date_str = ""
+        if to_date is not None:
+            to_date_str = to_date.strftime('%Y-%m-%d')
+        else:
+            to_date_str = ""
+        pageNumber = 0
+        moreExist = True
+        transactions = []
 
-        logger.debug('Fetching account transactions for account %s',
-                     account_number)
+        while moreExist:
+            data = {
+                'accountNumber': account_number,
+                "currentPageNumber": pageNumber,
+                "searchCriterion": {
+                    "fromDate": from_date_str,
+                    "toDate": to_date_str,
+                    "fromAmount": "",
+                    "toAmount": ""
+                }
+            }
 
-        # Get javax.faces.ViewState from the last request
-        last_req_hidden_inputs = self._hidden_inputs_as_dict(
-            BeautifulSoup(self.last_req_body, 'html.parser'))
+            headers = {'Content-type': 'application/json',
+                       'Accept': 'application/json',
+                       'CSRFToken': self.json_token}
+            path = '/im/json/account/getaccounttransactions'
+            req = self.session.post(
+                self.BASE_URL + path,
+                json=data,
+                headers=headers)
 
-        data = {
-            'dialog-overview_showAccount': 'Submit',
-            'menuLinks_SUBMIT': 1,
-            'menuLinks:_idcl': '',
-            'menuLinks:_link_hidden_': '',
-            'javax.faces.ViewState': last_req_hidden_inputs.get(
-                'javax.faces.ViewState'),
-            '_token': self.token,
-            'productId': account_number
-        }
+            logger.debug(f'Transaction request response code {req.status_code}.')
+            logger.debug(req.text)
 
-        path = '/im/im/csw.jsf'
-        req = self.session.post(self.BASE_URL + path, data=data)
-        self.last_req_body = req.content
+            # Parse transactions
+            decoded = req.json()
 
-        logger.debug('Transaction request response code %s', req.status_code)
+            moreExist = decoded["response"]["transactions"]["moreExist"]
+            pageNumber += 1
 
-        self._parse_tokens(req.text)
-
-        # Parse transactions
-        transactions = self._parse_account_transactions(req.text)
-
-        # Request was ok but but no transactions were found. Try to refetch.
-        # Requests seems to loose the connections sometimes with the message
-        # "Resetting dropped connection". This should work around that
-        # problem.
-        if req.status_code == requests.codes.ok and not transactions:
-            transactions = self.get_account_transactions(account_number)
+            transactions += self._parse_account_transactions(decoded)
+            logger.debug(transactions)
 
         return transactions
+
+    def get_cards(self) -> dict:
+        data = {
+            "customerId": self.personal_identity_number,
+            "responseControl": {
+                "profile": {
+                    "customerId": self.personal_identity_number,
+                    "profileType": "CUSTOMER",
+                    "subjectUserId": None,
+                },
+                "content": {
+                    "includes": [
+                        {"include": "AVAILABLE_BALANCE"},
+                        {"include": "DEBIT_ACCOUNT_NAME"}
+                    ]},
+                "filter": {
+                    "includes": [{
+                        "cardStatus": ["ACTIVE", "TEMPORARY_BLOCKED", "NOT_ACTIVATED"]
+                    }]
+                }
+            }
+        }
+
+        headers = {'Content-type': 'application/json',
+                   'Accept': '*/*'}
+        path = '/es/card/getcards/3.1'
+        req = self.session.post(
+            self.BASE_URL + path,
+            json=data,
+            headers=headers)
+
+        data = req.json()
+        return data['response']['cards']
